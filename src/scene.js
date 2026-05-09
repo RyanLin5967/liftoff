@@ -18,12 +18,17 @@ const SHIP_MODEL_EULER = new THREE.Euler(0, Math.PI, 0); // 180° yaw so the nos
 // === Earth model + textures ===
 // Earth.obj uses two named groups: `earth_twilight_GEO` (surface) and
 // `clouds_GEO` (cloud shell). Textures live in ./Earth_Texture/.
-// EARTH_RADIUS controls visual size; trajectory is ~1.3 units so 0.18 gives
-// a planet that's clearly larger than the ship without dwarfing the trace.
 const EARTH_MODEL_PATH = './Earth.obj';
 const EARTH_TEXTURE_DIR = './Earth_Texture/';
-const EARTH_RADIUS = 0.18;
 // ===============================
+
+// === Planet sizing — real-world ratio, scaled for visibility ===
+// PLANET_SCALE sets the absolute visual size of an Earth-sized planet.
+// To add other planets, multiply by their real-world Earth-relative radius
+// (Mars ≈ 0.532, Jupiter ≈ 11.2, Proxima b ≈ 1.07, etc.) so proportions stay real.
+const PLANET_SCALE = 0.4;
+const EARTH_RADIUS = PLANET_SCALE * 1.0;
+// ================================================================
 
 const STAR_VERTEX = `
     attribute float size;
@@ -507,12 +512,6 @@ export function updateScene(state, wp, Voyage) {
     state.trajectory.future.position.set(-wp.x, -wp.y, -wp.z);
     state.trajectory.past.position.set(-wp.x, -wp.y, -wp.z);
 
-    // Earth is anchored at trajectory origin (Sol). In ship-relative space
-    // that's -wp, so it correctly recedes behind as the ship travels.
-    if (state.earth) {
-        state.earth.group.position.set(-wp.x, -wp.y, -wp.z);
-    }
-
     // Orient ship along the trajectory tangent (+X is the ship's nose)
     const traj = state.voyageData.trajectory;
     const i = Math.min(traj.length - 2, Math.max(0, wp.waypointIndex));
@@ -522,17 +521,35 @@ export function updateScene(state, wp, Voyage) {
     const dir = new THREE.Vector3(dx / len, dy / len, dz / len);
     state.ship.group.quaternion.setFromUnitVectors(SHIP_FORWARD, dir);
 
+    // Earth is anchored one EARTH_RADIUS BEHIND trajectory[0] along the launch
+    // direction, so at year 0 the ship's origin lies exactly on Earth's surface
+    // (no more spawning inside the planet). Cache the launch dir once.
+    if (state.earth) {
+        if (!state._launchDir) {
+            const t0 = traj[0], t1 = traj[1] ?? t0;
+            const ldx = t1.x - t0.x, ldy = t1.y - t0.y, ldz = t1.z - t0.z;
+            const lLen = Math.hypot(ldx, ldy, ldz) || 1;
+            state._launchDir = new THREE.Vector3(ldx / lLen, ldy / lLen, ldz / lLen);
+        }
+        const ld = state._launchDir;
+        state.earth.group.position.set(
+            -wp.x - EARTH_RADIUS * ld.x,
+            -wp.y - EARTH_RADIUS * ld.y,
+            -wp.z - EARTH_RADIUS * ld.z,
+        );
+    }
+
     // Reveal "past" portion up to current waypoint
     const drawCount = Math.max(2, Math.min(state.trajectory.totalCount, wp.waypointIndex + 1));
     state.trajectory.past.geometry.setDrawRange(0, drawCount);
 
-    // Light horizon sphere — radius is current Earth-light distance in parsecs
-    // earthLightYear is years of Earth time; convert relative growth roughly to parsecs.
-    // The sphere is centered at -wp (Sol's position relative to ship).
+    // Light horizon sphere — centered at Sol (-wp in ship-relative space),
+    // with radius = distance from Sol to ship, so the sphere's surface always
+    // passes through the ship's center. Color flips after the horizon year.
     state.lightHorizon.position.set(-wp.x, -wp.y, -wp.z);
     const horizonYr = Voyage.getLightHorizon().ship_year;
     const past = wp.year >= horizonYr;
-    const radius = Math.max(0.001, wp.year / Math.max(1, horizonYr)) * 1.4;
+    const radius = Math.max(0.001, Math.hypot(wp.x, wp.y, wp.z));
     state.lightHorizon.scale.setScalar(radius);
     state.lightHorizon.material.color.setHex(past ? 0xff7755 : 0x4488dd);
     state.lightHorizon.material.opacity = past ? 0.02 : 0.06;
