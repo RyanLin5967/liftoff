@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voyage — Sol to Proxima Centauri</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #020208;
+            color: #e8eef8;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #canvas-container {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+        }
+
+        #canvas-container canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .ui-overlay > * {
+            pointer-events: auto;
+        }
+
+        .panel {
+            background: rgba(4, 8, 18, 0.62);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(140, 170, 220, 0.12);
+            border-radius: 6px;
+            padding: 14px 16px;
+            color: #e8eef8;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        #light-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            max-width: 320px;
+        }
+
+        #light-panel .label {
+            font-size: 10px;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+            margin-bottom: 6px;
+        }
+
+        #light-panel .primary {
+            font-size: 15px;
+            color: #cfe1ff;
+        }
+
+        #light-panel .secondary {
+            margin-top: 8px;
+            color: #9aa9c4;
+            font-size: 12px;
+        }
+
+        #light-panel.past-horizon .primary {
+            color: #ffb38a;
+        }
+
+        #sol-status {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            min-width: 220px;
+            text-align: right;
+        }
+
+        #sol-status .label {
+            font-size: 10px;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+            margin-bottom: 6px;
+        }
+
+        #sol-status .magnitude {
+            font-size: 22px;
+            font-variant-numeric: tabular-nums;
+            color: #fff4d6;
+        }
+
+        #sol-status .visibility {
+            font-size: 11px;
+            color: #9aa9c4;
+            margin-top: 2px;
+        }
+
+        #slider-container {
+            position: absolute;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(720px, 80vw);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #year-display {
+            font-size: 13px;
+            color: #cfe1ff;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.5px;
+        }
+
+        #year-display .current {
+            font-size: 18px;
+            color: #ffffff;
+            margin-right: 4px;
+        }
+
+        #slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            background: rgba(140, 170, 220, 0.22);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        #slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #cfe1ff;
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 12px rgba(180, 210, 255, 0.6);
+            cursor: pointer;
+        }
+
+        #slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #cfe1ff;
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 12px rgba(180, 210, 255, 0.6);
+            cursor: pointer;
+        }
+
+        #mute-button {
+            position: absolute;
+            bottom: 28px;
+            right: 28px;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: rgba(4, 8, 18, 0.62);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(140, 170, 220, 0.18);
+            color: #cfe1ff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: background 0.15s ease;
+        }
+
+        #mute-button:hover {
+            background: rgba(20, 30, 55, 0.8);
+        }
+
+        #pin-popup {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: min(420px, 92vw);
+            height: 100%;
+            background: rgba(4, 8, 18, 0.88);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-left: 1px solid rgba(140, 170, 220, 0.16);
+            padding: 60px 36px 40px;
+            transform: translateX(100%);
+            transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+            overflow-y: auto;
+        }
+
+        #pin-popup.open {
+            transform: translateX(0);
+        }
+
+        #pin-popup .close {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: transparent;
+            color: #9aa9c4;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        #pin-popup .close:hover { color: #fff; }
+
+        #pin-popup .meta {
+            font-size: 10px;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+            margin-bottom: 8px;
+        }
+
+        #pin-popup .title {
+            font-size: 22px;
+            color: #fff;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        #pin-popup .author {
+            font-size: 13px;
+            color: #cfe1ff;
+            margin-bottom: 24px;
+        }
+
+        #pin-popup .text {
+            font-size: 14px;
+            line-height: 1.7;
+            color: #c6d2e6;
+            white-space: pre-wrap;
+        }
+
+        #milestone-toast {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) translateY(-20px);
+            padding: 14px 22px;
+            background: rgba(4, 8, 18, 0.82);
+            border: 1px solid rgba(180, 210, 255, 0.3);
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+            letter-spacing: 0.4px;
+            opacity: 0;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            pointer-events: none;
+        }
+
+        #milestone-toast.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%);
+        }
+
+        #loading {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #020208;
+            color: #cfe1ff;
+            font-size: 13px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            z-index: 100;
+            transition: opacity 0.6s ease;
+        }
+
+        #loading.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="loading">Loading voyage…</div>
+
+    <div id="canvas-container"></div>
+
+    <div class="ui-overlay">
+        <div id="light-panel" class="panel">
+            <div class="label">Light from Earth</div>
+            <div class="primary">—</div>
+            <div class="secondary">—</div>
+        </div>
+
+        <div id="sol-status" class="panel">
+            <div class="label">Sol — apparent magnitude</div>
+            <div class="magnitude">—</div>
+            <div class="visibility">—</div>
+        </div>
+
+        <div id="slider-container">
+            <div id="year-display"><span class="current">0.0</span>of 250 years</div>
+            <input id="slider" type="range" min="0" max="250" step="0.1" value="0">
+        </div>
+
+        <button id="mute-button" title="Toggle audio">♪</button>
+
+        <aside id="pin-popup">
+            <button class="close" aria-label="Close">×</button>
+            <div class="meta"></div>
+            <h2 class="title"></h2>
+            <div class="author"></div>
+            <div class="text"></div>
+        </aside>
+
+        <div id="milestone-toast"></div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+</body>
+</html>
