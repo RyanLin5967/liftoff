@@ -153,11 +153,34 @@ async function setup() {
 
     onTimelinePinClick(ui, (pin) => openPinPopup(ui, pin));
 
-    ui.slider.addEventListener('input', (e) => {
-        if (Audio && !audioStarted) {
-            Audio.start();
-            audioStarted = true;
+    if (Audio) {
+        try {
+            await Audio.init();
+        } catch (e) {
+            console.warn('Audio init failed', e);
+            Audio = null;
         }
+    }
+
+    function tryStartAudio() {
+        if (!Audio || audioStarted) return;
+        Audio.start();
+        audioStarted = true;
+        Audio.setMasterVolume(muted ? 0 : 0.3);
+        Audio.update(parseFloat(ui.slider.value) || 0, Voyage.getLightHorizon().ship_year);
+    }
+
+    // Attempt autoplay; browsers may block until first user gesture.
+    tryStartAudio();
+    const gestureEvents = ['pointerdown', 'keydown', 'touchstart'];
+    const onFirstGesture = () => {
+        tryStartAudio();
+        for (const evt of gestureEvents) document.removeEventListener(evt, onFirstGesture);
+    };
+    for (const evt of gestureEvents) document.addEventListener(evt, onFirstGesture, { once: false });
+
+    ui.slider.addEventListener('input', (e) => {
+        tryStartAudio();
 
         const year = parseFloat(e.target.value);
         const wp = Voyage.getWaypoint(year);
@@ -180,21 +203,13 @@ async function setup() {
     });
 
     ui.muteButton.addEventListener('click', () => {
+        tryStartAudio();
         muted = !muted;
         setMuted(ui, muted);
         if (Audio) {
             Audio.setMasterVolume(muted ? 0 : 0.3);
         }
     });
-
-    if (Audio) {
-        try {
-            await Audio.init();
-        } catch (e) {
-            console.warn('Audio init failed', e);
-            Audio = null;
-        }
-    }
 
     document.getElementById('loading').classList.add('hidden');
 }
