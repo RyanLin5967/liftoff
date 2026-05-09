@@ -4,14 +4,26 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 // === Ship model — swap this path to use a different GLB ===
 // Path is relative to index.html (the page root).
-const SHIP_MODEL_PATH = './Meshy_AI_Interstellar_Travel_U_0509183357_texture.glb';
+const SHIP_MODEL_PATH = './spaceship.glb';
 // Tweak these if the model appears the wrong size or facing the wrong way.
 const SHIP_SCALE = 0.12;
 const SHIP_MODEL_EULER = new THREE.Euler(0, Math.PI, 0); // 180° yaw so the nose faces forward
 // ===========================================================
+
+// === Earth model + textures ===
+// Earth.obj uses two named groups: `earth_twilight_GEO` (surface) and
+// `clouds_GEO` (cloud shell). Textures live in ./Earth_Texture/.
+// EARTH_RADIUS controls visual size; trajectory is ~1.3 units so 0.18 gives
+// a planet that's clearly larger than the ship without dwarfing the trace.
+const EARTH_MODEL_PATH = './Earth.obj';
+const EARTH_TEXTURE_DIR = './Earth_Texture/';
+const EARTH_RADIUS = 0.18;
+// ===============================
 
 const STAR_VERTEX = `
     attribute float size;
@@ -71,17 +83,28 @@ export function createScene(starsData, voyageData, Voyage) {
     scene.add(trajectory.future);
     scene.add(trajectory.past);
 
-    // Lighting so the ship's metal surfaces are visible against the starfield
-    scene.add(new THREE.AmbientLight(0x556677, 0.45));
-    const keyLight = new THREE.DirectionalLight(0xffeedd, 0.9);
+    // External lighting — soft environment for smooth PBR + two directional lights
+    // that wrap the ship from opposite sides.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+
+    scene.add(new THREE.AmbientLight(0x6a7488, 0.25));
+    const keyLight = new THREE.DirectionalLight(0xfff1d8, 1.6);
     keyLight.position.set(2, 1.5, 1);
     scene.add(keyLight);
-    const rimLight = new THREE.DirectionalLight(0x88aaff, 0.5);
-    rimLight.position.set(-1, -0.5, -1.2);
+    const rimLight = new THREE.DirectionalLight(0x88aaff, 0.9);
+    rimLight.position.set(-1.2, -0.4, -1.2);
     scene.add(rimLight);
 
     const ship = createShip();
     scene.add(ship.group);
+
+    // Earth sits at trajectory origin (Sol). Its position is updated each
+    // frame by updateScene so it stays at world (0,0,0) while the ship
+    // sits at the camera origin.
+    const earth = createEarth();
+    scene.add(earth.group);
 
     const constellations = new THREE.Group();
     scene.add(constellations);
@@ -111,6 +134,12 @@ export function createScene(starsData, voyageData, Voyage) {
     function animate() {
         requestAnimationFrame(animate);
         controls.update();
+
+        // Slow Earth rotation — surface and clouds drift at slightly different rates.
+        const t = performance.now() * 0.001;
+        if (earth.surface) earth.surface.rotation.y = t * 0.04;
+        if (earth.clouds)  earth.clouds.rotation.y  = t * 0.06;
+
         composer.render();
     }
     animate();
@@ -121,6 +150,7 @@ export function createScene(starsData, voyageData, Voyage) {
         starMaterial: stars.material,
         trajectory,
         ship,
+        earth,
         constellations,
         lightHorizon,
         voyageData,
@@ -194,15 +224,24 @@ function createShip() {
     modelHolder.rotation.copy(SHIP_MODEL_EULER);
     group.add(modelHolder);
 
-    // Warm cabin glow so the ship reads as inhabited even at distance
-    const cabinLight = new THREE.PointLight(0xffe4b0, 0.4, 0.15);
-    group.add(cabinLight);
-
     const ship = { group, modelHolder, model: null };
 
     new GLTFLoader().load(
         SHIP_MODEL_PATH,
         (gltf) => {
+            // Strip baked emissive so the ship is lit by the scene from outside,
+            // not glowing from within. Tweak emissiveIntensity if you want some
+            // panels to keep glowing.
+            gltf.scene.traverse((obj) => {
+                if (!obj.isMesh || !obj.material) return;
+                const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+                for (const mat of mats) {
+                    if ('emissive' in mat) mat.emissive.setHex(0x000000);
+                    if ('emissiveIntensity' in mat) mat.emissiveIntensity = 0;
+                    if ('emissiveMap' in mat) mat.emissiveMap = null;
+                    mat.needsUpdate = true;
+                }
+            });
             ship.model = gltf.scene;
             modelHolder.add(gltf.scene);
         },
@@ -213,6 +252,100 @@ function createShip() {
     );
 
     return ship;
+}
+
+function createEarth() {
+    // Outer group: positioned each frame to keep Earth at world origin.
+    // Inner wrapper: holds the OBJ at unit radius after normalization, then
+    // we set group.scale = EARTH_RADIUS for the final visible size.
+    const group = new THREE.Group();
+    const wrapper = new THREE.Group();
+    group.add(wrapper);
+    group.scale.setScalar(EARTH_RADIUS);
+
+    // Refs returned to the caller so animate() can spin surface/clouds.
+    const earth = { group, wrapper, surface: null, clouds: null };
+
+    const texLoader = new THREE.TextureLoader();
+    const sRGB = (path) => {
+        const t = texLoader.load(EARTH_TEXTURE_DIR + path);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+    };
+    const linear = (path) => texLoader.load(EARTH_TEXTURE_DIR + path);
+
+    const earthMat = new THREE.MeshStandardMaterial({
+        map:           sRGB('earth_MAT_baseColor.png'),
+        normalMap:   linear('earth_MAT_normal.png'),
+        roughnessMap: linear('earth_MAT_roughness.png'),
+        emissiveMap:   sRGB('earth_MAT_glow.png'),
+        emissive: new THREE.Color(0xffaa55),
+        emissiveIntensity: 1.0,
+        roughness: 1.0,
+        metalness: 0.0,
+    });
+
+    const cloudMat = new THREE.MeshStandardMaterial({
+        map:           sRGB('clouds_MAT_baseColor.png'),
+        normalMap:   linear('clouds_MAT_normal.png'),
+        roughnessMap: linear('clouds_MAT_roughness.png'),
+        alphaMap:    linear('clouds_MAT_opacity.png'),
+        transparent: true,
+        depthWrite: false,
+        roughness: 1.0,
+        metalness: 0.0,
+    });
+
+    new OBJLoader().load(
+        EARTH_MODEL_PATH,
+        (obj) => {
+            // Assign materials by mesh / group name. The OBJ has
+            // `earth_twilight_GEO` and `clouds_GEO`. Match loosely by substring
+            // so naming variations still work.
+            obj.traverse((child) => {
+                if (!child.isMesh) return;
+                const name = (child.name || '').toLowerCase();
+                if (name.includes('cloud')) {
+                    child.material = cloudMat;
+                    earth.clouds = child;
+                } else {
+                    child.material = earthMat;
+                    earth.surface = child;
+                }
+            });
+
+            // Fallbacks if traversal didn't tag both meshes (OBJ group naming
+            // can be quirky). Pick the first two meshes by index.
+            if (!earth.surface || !earth.clouds) {
+                const meshes = [];
+                obj.traverse((c) => { if (c.isMesh) meshes.push(c); });
+                if (!earth.surface && meshes[0]) {
+                    meshes[0].material = earthMat;
+                    earth.surface = meshes[0];
+                }
+                if (!earth.clouds && meshes[1]) {
+                    meshes[1].material = cloudMat;
+                    earth.clouds = meshes[1];
+                }
+            }
+
+            // Normalize the OBJ so its bounding sphere has radius 1.
+            const bbox = new THREE.Box3().setFromObject(obj);
+            const sphere = new THREE.Sphere();
+            bbox.getBoundingSphere(sphere);
+            if (sphere.radius > 0) {
+                obj.position.copy(sphere.center).multiplyScalar(-1);
+                wrapper.scale.setScalar(1 / sphere.radius);
+            }
+            wrapper.add(obj);
+        },
+        undefined,
+        (err) => {
+            console.error(`Failed to load Earth model at ${EARTH_MODEL_PATH}:`, err);
+        },
+    );
+
+    return earth;
 }
 
 function createLightHorizonSphere() {
@@ -238,6 +371,12 @@ export function updateScene(state, wp, Voyage) {
     // Move trajectory so ship sits at origin
     state.trajectory.future.position.set(-wp.x, -wp.y, -wp.z);
     state.trajectory.past.position.set(-wp.x, -wp.y, -wp.z);
+
+    // Earth is anchored at trajectory origin (Sol). In ship-relative space
+    // that's -wp, so it correctly recedes behind as the ship travels.
+    if (state.earth) {
+        state.earth.group.position.set(-wp.x, -wp.y, -wp.z);
+    }
 
     // Orient ship along the trajectory tangent (+X is the ship's nose)
     const traj = state.voyageData.trajectory;
