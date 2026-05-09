@@ -8,17 +8,41 @@ export function createUI(voyageData) {
     const popupClose = popup.querySelector('.close');
     const milestoneToast = document.getElementById('milestone-toast');
     const timelinePins = document.getElementById('timeline-pins');
+    const destinationLabel = document.getElementById('destination-label');
+    const settingsButton = document.getElementById('settings-button');
+    const settingsPanel = document.getElementById('settings-panel');
+    const settingsClose = settingsPanel.querySelector('.settings-close');
+    const settingsDestination = document.getElementById('settings-destination');
+    const settingDuration = document.getElementById('setting-duration');
+    const settingStart = document.getElementById('setting-start');
+    const settingStep = document.getElementById('setting-step');
+    const settingReset = document.getElementById('setting-reset');
 
     const totalYears = voyageData?.metadata?.total_years ?? 250;
-    if (voyageData?.metadata?.total_years) {
-        slider.max = totalYears;
+    const destinationName =
+        voyageData?.metadata?.destination_name ??
+        voyageData?.metadata?.destination?.name ??
+        'Proxima Centauri';
+
+    const defaults = { duration: totalYears, start: 0, step: 0.1 };
+
+    slider.min = defaults.start;
+    slider.max = defaults.duration;
+    slider.step = defaults.step;
+    settingDuration.value = defaults.duration;
+    settingStart.value = defaults.start;
+    settingStep.value = defaults.step;
+
+    if (destinationLabel) {
+        destinationLabel.querySelector('.name').textContent = destinationName;
     }
+    settingsDestination.textContent = destinationName;
 
-    popupClose.addEventListener('click', () => closePinPopup({ popup }));
+    const pinElements = timelinePins
+        ? renderTimelinePins(timelinePins, voyageData?.pins ?? [], totalYears)
+        : [];
 
-    const pinElements = renderTimelinePins(timelinePins, voyageData?.pins ?? [], totalYears);
-
-    return {
+    const ui = {
         slider,
         yearDisplay,
         lightPanel,
@@ -26,11 +50,60 @@ export function createUI(voyageData) {
         muteButton,
         popup,
         milestoneToast,
+        destinationLabel,
+        settingsPanel,
         timelinePins,
         pinElements,
-        totalYears,
         _toastTimer: null,
+        _totalYears: totalYears,
     };
+
+    function applyTimelineSettings() {
+        const duration = clampNumber(parseFloat(settingDuration.value), 1, 5000, defaults.duration);
+        const start = clampNumber(parseFloat(settingStart.value), 0, duration - 0.1, 0);
+        const step = clampNumber(parseFloat(settingStep.value), 0.01, 50, defaults.step);
+
+        // Echo clamped values back into the inputs so the user sees what was applied
+        settingDuration.value = duration;
+        settingStart.value = start;
+        settingStep.value = step;
+
+        slider.min = start;
+        slider.max = duration;
+        slider.step = step;
+
+        ui._totalYears = duration;
+
+        let current = parseFloat(slider.value);
+        if (!Number.isFinite(current)) current = start;
+        current = Math.min(Math.max(current, start), duration);
+        slider.value = current;
+
+        // Always re-fire input so main.js refreshes scene + UI with the new bounds.
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    settingsButton.addEventListener('click', () => settingsPanel.classList.toggle('open'));
+    settingsClose.addEventListener('click', () => settingsPanel.classList.remove('open'));
+    // 'change' covers blur/Enter/spinner clicks; 'input' alone would re-clamp every keystroke.
+    settingDuration.addEventListener('change', applyTimelineSettings);
+    settingStart.addEventListener('change', applyTimelineSettings);
+    settingStep.addEventListener('change', applyTimelineSettings);
+    settingReset.addEventListener('click', () => {
+        settingDuration.value = defaults.duration;
+        settingStart.value = defaults.start;
+        settingStep.value = defaults.step;
+        applyTimelineSettings();
+    });
+
+    popupClose.addEventListener('click', () => closePinPopup({ popup }));
+
+    return ui;
+}
+
+function clampNumber(value, min, max, fallback) {
+    if (!Number.isFinite(value)) return fallback;
+    return Math.min(Math.max(value, min), max);
 }
 
 function renderTimelinePins(container, pins, totalYears) {
@@ -62,7 +135,7 @@ export function onTimelinePinClick(ui, handler) {
 }
 
 export function updateUI(ui, wp, Voyage) {
-    ui.yearDisplay.innerHTML = `<span class="current">${wp.year.toFixed(1)}</span>of ${Math.round(Voyage.getLightHorizon ? 250 : 250)} years`;
+    ui.yearDisplay.innerHTML = `<span class="current">${wp.year.toFixed(1)}</span>of ${Math.round(ui._totalYears)} years`;
 
     const past = Voyage.isPastLightHorizon(wp.year);
     const horizon = Voyage.getLightHorizon();

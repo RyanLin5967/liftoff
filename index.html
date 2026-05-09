@@ -118,8 +118,15 @@
             width: min(720px, 80vw);
             display: flex;
             flex-direction: column;
-            align-items: center;
+            align-items: stretch;
             gap: 10px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            width: 100%;
         }
 
         #timeline {
@@ -198,6 +205,23 @@
             margin-right: 4px;
         }
 
+        #destination-label {
+            font-size: 12px;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: #9aa9c4;
+        }
+
+        #destination-label .arrow {
+            color: #6677aa;
+            margin-right: 6px;
+        }
+
+        #destination-label .name {
+            color: #cfe1ff;
+            letter-spacing: 0.6px;
+        }
+
         #slider {
             -webkit-appearance: none;
             appearance: none;
@@ -231,10 +255,10 @@
             cursor: pointer;
         }
 
-        #mute-button {
+        #mute-button,
+        #settings-button {
             position: absolute;
             bottom: 28px;
-            right: 28px;
             width: 38px;
             height: 38px;
             border-radius: 50%;
@@ -251,8 +275,114 @@
             transition: background 0.15s ease;
         }
 
-        #mute-button:hover {
+        #mute-button { right: 28px; }
+        #settings-button { right: 76px; font-size: 18px; }
+
+        #mute-button:hover,
+        #settings-button:hover {
             background: rgba(20, 30, 55, 0.8);
+        }
+
+        #settings-panel {
+            position: absolute;
+            bottom: 80px;
+            right: 28px;
+            width: 280px;
+            opacity: 0;
+            transform: translateY(8px);
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        #settings-panel.open {
+            opacity: 1;
+            transform: none;
+            pointer-events: auto;
+        }
+
+        #settings-panel .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+
+        #settings-panel .settings-title {
+            font-size: 10px;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+        }
+
+        #settings-panel .settings-close {
+            background: transparent;
+            border: none;
+            color: #7a8aa8;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            padding: 0;
+        }
+
+        #settings-panel .settings-close:hover { color: #fff; }
+
+        #settings-panel label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #9aa9c4;
+            margin-bottom: 10px;
+        }
+
+        #settings-panel input[type="number"] {
+            width: 90px;
+            padding: 4px 8px;
+            background: rgba(8, 14, 28, 0.8);
+            border: 1px solid rgba(140, 170, 220, 0.2);
+            border-radius: 3px;
+            color: #e8eef8;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+            outline: none;
+        }
+
+        #settings-panel input[type="number"]:focus {
+            border-color: rgba(180, 210, 255, 0.55);
+        }
+
+        #settings-panel .destination-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #9aa9c4;
+            margin-bottom: 14px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(140, 170, 220, 0.12);
+        }
+
+        #settings-panel .destination-row .name {
+            color: #cfe1ff;
+            font-weight: 500;
+        }
+
+        #settings-panel .settings-reset {
+            width: 100%;
+            margin-top: 6px;
+            padding: 8px;
+            background: rgba(20, 30, 55, 0.6);
+            border: 1px solid rgba(140, 170, 220, 0.2);
+            border-radius: 3px;
+            color: #cfe1ff;
+            font-size: 12px;
+            letter-spacing: 0.4px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        #settings-panel .settings-reset:hover {
+            background: rgba(40, 60, 100, 0.7);
         }
 
         #pin-popup {
@@ -389,14 +519,42 @@
         </div>
 
         <div id="slider-container">
-            <div id="year-display"><span class="current">0.0</span>of 250 years</div>
+            <div class="slider-header">
+                <div id="year-display"><span class="current">0.0</span>of 250 years</div>
+                <div id="destination-label"><span class="arrow">→</span><span class="name">Proxima Centauri</span></div>
+            </div>
             <div id="timeline">
                 <input id="slider" type="range" min="0" max="250" step="0.1" value="0">
                 <div id="timeline-pins"></div>
             </div>
         </div>
 
+        <button id="settings-button" title="Timeline settings">⚙</button>
         <button id="mute-button" title="Toggle audio">♪</button>
+
+        <div id="settings-panel" class="panel">
+            <div class="settings-header">
+                <span class="settings-title">Timeline</span>
+                <button class="settings-close" aria-label="Close">×</button>
+            </div>
+            <div class="destination-row">
+                <span>Destination</span>
+                <span class="name" id="settings-destination">Proxima Centauri</span>
+            </div>
+            <label>
+                <span>Trip duration (yrs)</span>
+                <input id="setting-duration" type="number" min="1" max="2000" step="1">
+            </label>
+            <label>
+                <span>Start year</span>
+                <input id="setting-start" type="number" min="0" step="1">
+            </label>
+            <label>
+                <span>Step (yrs)</span>
+                <input id="setting-step" type="number" min="0.01" max="50" step="0.1">
+            </label>
+            <button class="settings-reset" id="setting-reset">Reset to defaults</button>
+        </div>
 
         <aside id="pin-popup">
             <button class="close" aria-label="Close">×</button>
