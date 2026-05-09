@@ -589,6 +589,255 @@
             white-space: pre-wrap;
         }
 
+        #star-tooltip {
+            position: absolute;
+            top: 0;
+            left: 0;
+            min-width: 200px;
+            max-width: 280px;
+            padding: 10px 12px;
+            background: rgba(4, 8, 18, 0.92);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(180, 210, 255, 0.25);
+            border-radius: 4px;
+            color: #e8eef8;
+            font-size: 12px;
+            line-height: 1.5;
+            pointer-events: none;
+            opacity: 0;
+            transform: translate(12px, 12px);
+            transition: opacity 0.1s ease;
+            z-index: 4;
+            font-variant-numeric: tabular-nums;
+        }
+
+        #star-tooltip.visible { opacity: 1; }
+
+        #star-tooltip .name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #fff;
+            margin-bottom: 2px;
+        }
+
+        #star-tooltip .name .swatch {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 6px;
+            vertical-align: middle;
+            box-shadow: 0 0 6px currentColor;
+        }
+
+        #star-tooltip .id {
+            font-size: 10px;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+            margin-bottom: 8px;
+        }
+
+        #star-tooltip .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            color: #c6d2e6;
+        }
+
+        #star-tooltip .row .label {
+            color: #7a8aa8;
+        }
+
+        #star-tooltip .row .value {
+            color: #e8eef8;
+        }
+
+        #star-tooltip .light-line {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(140, 170, 220, 0.15);
+            color: #cfe1ff;
+            font-style: italic;
+        }
+
+        /* === Setup modal (first-time prompt + change destination later) === */
+        #setup-overlay,
+        #star-detail-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(2, 4, 10, 0.65);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 6;
+        }
+
+        #setup-overlay.open,
+        #star-detail-overlay.open { display: flex; }
+
+        #setup-panel,
+        #star-detail-panel {
+            width: min(460px, 92vw);
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 26px 28px;
+        }
+
+        #setup-panel .panel-header,
+        #star-detail-panel .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+        }
+
+        #setup-panel h2,
+        #star-detail-panel h2 {
+            font-size: 18px;
+            color: #fff;
+            font-weight: 500;
+        }
+
+        #setup-panel .subtitle,
+        #star-detail-panel .subtitle {
+            font-size: 12px;
+            color: #9aa9c4;
+            margin-bottom: 18px;
+            line-height: 1.55;
+        }
+
+        #setup-panel .field,
+        #star-detail-panel .info-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 14px;
+        }
+
+        #setup-panel label {
+            font-size: 10px;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+        }
+
+        #setup-panel select,
+        #setup-panel input[type="number"] {
+            padding: 9px 10px;
+            background: rgba(8, 14, 28, 0.85);
+            border: 1px solid rgba(140, 170, 220, 0.22);
+            border-radius: 3px;
+            color: #e8eef8;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+        }
+
+        #setup-panel select:focus,
+        #setup-panel input[type="number"]:focus {
+            border-color: rgba(180, 210, 255, 0.55);
+        }
+
+        #setup-panel .estimate {
+            margin-top: 4px;
+            padding: 10px 12px;
+            background: rgba(20, 30, 55, 0.45);
+            border-left: 2px solid rgba(180, 210, 255, 0.6);
+            font-size: 12px;
+            color: #cfe1ff;
+            line-height: 1.6;
+        }
+
+        #setup-panel .estimate strong {
+            color: #fff;
+            font-weight: 500;
+        }
+
+        #setup-panel .actions,
+        #star-detail-panel .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        #setup-panel button.primary,
+        #star-detail-panel button.primary,
+        #setup-panel button.secondary,
+        #star-detail-panel button.secondary {
+            flex: 1;
+            padding: 10px;
+            border-radius: 3px;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        #setup-panel button.primary,
+        #star-detail-panel button.primary {
+            background: rgba(80, 130, 220, 0.6);
+            border: 1px solid rgba(180, 210, 255, 0.55);
+            color: #fff;
+        }
+
+        #setup-panel button.primary:hover,
+        #star-detail-panel button.primary:hover {
+            background: rgba(110, 160, 240, 0.75);
+        }
+
+        #setup-panel button.secondary,
+        #star-detail-panel button.secondary {
+            background: rgba(20, 30, 55, 0.6);
+            border: 1px solid rgba(140, 170, 220, 0.22);
+            color: #cfe1ff;
+        }
+
+        #setup-panel button.secondary:hover,
+        #star-detail-panel button.secondary:hover {
+            background: rgba(40, 60, 100, 0.7);
+        }
+
+        #star-detail-panel .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #c6d2e6;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(140, 170, 220, 0.08);
+        }
+
+        #star-detail-panel .info-row .label {
+            color: #7a8aa8;
+        }
+
+        #star-detail-panel .name-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 4px;
+        }
+
+        #star-detail-panel .name-row .swatch {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        #star-detail-panel .current-tag {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 2px 8px;
+            background: rgba(80, 130, 220, 0.4);
+            border-radius: 3px;
+            font-size: 10px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #cfe1ff;
+        }
+
         #milestone-toast {
             position: absolute;
             top: 50%;
@@ -729,6 +978,11 @@
                 <span>Step (yrs)</span>
                 <input id="setting-step" type="number" min="0.01" max="50" step="0.1">
             </label>
+            <label>
+                <span>Ship speed (×c)</span>
+                <input id="setting-speed" type="number" min="0.001" max="0.99" step="0.001">
+            </label>
+            <button class="settings-reset" id="setting-change-destination">Change destination…</button>
             <button class="settings-reset" id="setting-reset">Reset to defaults</button>
         </div>
 
@@ -741,6 +995,50 @@
         </aside>
 
         <div id="milestone-toast"></div>
+
+        <div id="star-tooltip"></div>
+
+        <div id="setup-overlay">
+            <div id="setup-panel" class="panel">
+                <div class="panel-header">
+                    <h2>Plan your voyage</h2>
+                </div>
+                <div class="subtitle">
+                    Choose where you're going and how fast. The trajectory, light horizon,
+                    and milestones will all rebuild around your selection.
+                </div>
+                <div class="field">
+                    <label for="setup-destination">Destination</label>
+                    <select id="setup-destination"></select>
+                </div>
+                <div class="field">
+                    <label for="setup-speed">Ship speed (fraction of c)</label>
+                    <input id="setup-speed" type="number" min="0.001" max="0.99" step="0.001" value="0.05">
+                </div>
+                <div class="estimate" id="setup-estimate">—</div>
+                <div class="actions">
+                    <button type="button" class="primary" id="setup-begin">Begin voyage</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="star-detail-overlay">
+            <div id="star-detail-panel" class="panel">
+                <div class="panel-header">
+                    <div class="name-row">
+                        <span class="swatch"></span>
+                        <h2 class="star-name">—</h2>
+                        <span class="current-tag" hidden>Current destination</span>
+                    </div>
+                </div>
+                <div class="subtitle star-sub">—</div>
+                <div class="info-grid"></div>
+                <div class="actions">
+                    <button type="button" class="secondary" id="star-detail-close">Close</button>
+                    <button type="button" class="primary" id="star-detail-set-destination">Set as destination</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script type="module" src="./src/main.js"></script>

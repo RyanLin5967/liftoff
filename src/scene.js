@@ -123,6 +123,61 @@ export function createScene(starsData, voyageData, Voyage) {
     );
     composer.addPass(bloom);
 
+    // Star hover: screen-space picking against star geometry positions.
+    // Geometry is already in ship-relative coords, so projecting through the
+    // camera gives us NDC directly.
+    const hoverState = {
+        mouseNDC: new THREE.Vector2(NaN, NaN),
+        clientX: 0,
+        clientY: 0,
+        dirty: false,
+        lastIdx: -1,
+        handler: null,
+    };
+
+    renderer.domElement.addEventListener('mousemove', (e) => {
+        const rect = renderer.domElement.getBoundingClientRect();
+        hoverState.mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        hoverState.mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        hoverState.clientX = e.clientX;
+        hoverState.clientY = e.clientY;
+        hoverState.dirty = true;
+    });
+
+    renderer.domElement.addEventListener('mouseleave', () => {
+        hoverState.mouseNDC.x = NaN;
+        hoverState.mouseNDC.y = NaN;
+        hoverState.dirty = true;
+    });
+
+    // Re-pick whenever the camera moves (orbit drag, damping, zoom).
+    controls.addEventListener('change', () => { hoverState.dirty = true; });
+
+    // Star click: register a handler to fire when the user clicks on a star
+    // (vs dragging the camera). Uses a small movement threshold to distinguish.
+    const clickHandlers = [];
+    let downX = 0, downY = 0, downIdx = -1;
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+        downX = e.clientX;
+        downY = e.clientY;
+        // Force a fresh pick using this exact event position so we don't rely on
+        // hover state (which may be stale, NaN on touch devices, etc.)
+        const rect = renderer.domElement.getBoundingClientRect();
+        hoverState.mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        hoverState.mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        downIdx = pickStar();
+    });
+    renderer.domElement.addEventListener('pointerup', (e) => {
+        const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
+        if (moved > 5) return; // treated as drag
+        if (downIdx < 0) return;
+        clickHandlers.forEach((h) => h(downIdx, e.clientX, e.clientY));
+    });
+
+    function onStarClick(handler) {
+        clickHandlers.push(handler);
+    }
+
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
@@ -131,18 +186,64 @@ export function createScene(starsData, voyageData, Voyage) {
         bloom.setSize(window.innerWidth, window.innerHeight);
     });
 
+    const _pickVec = new THREE.Vector3();
+    function pickStar() {
+        if (!Number.isFinite(hoverState.mouseNDC.x)) return -1;
+        const positions = stars.geometry.attributes.position.array;
+        const sizes = stars.geometry.attributes.size.array;
+        const count = positions.length / 3;
+        const aspect = camera.aspect || 1;
+        // ~14px on a 1080p screen; expand slightly for big bright stars
+        const baseThreshold = 0.018;
+        let bestIdx = -1;
+        let bestDist2 = baseThreshold * baseThreshold;
+        for (let i = 0; i < count; i++) {
+            _pickVec.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+            _pickVec.project(camera);
+            if (_pickVec.z < -1 || _pickVec.z > 1) continue;
+            const dx = (_pickVec.x - hoverState.mouseNDC.x) * aspect;
+            const dy = _pickVec.y - hoverState.mouseNDC.y;
+            const sizeBoost = (sizes[i] || 1) * 0.0008;
+            const tol = baseThreshold + sizeBoost;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < tol * tol && d2 < bestDist2) {
+                bestDist2 = d2;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }
+
     function animate() {
         requestAnimationFrame(animate);
         controls.update();
 
-        // Slow Earth rotation — surface and clouds drift at slightly different rates.
-        const t = performance.now() * 0.001;
-        if (earth.surface) earth.surface.rotation.y = t * 0.04;
-        if (earth.clouds)  earth.clouds.rotation.y  = t * 0.06;
+        if (hoverState.dirty && hoverState.handler) {
+            hoverState.dirty = false;
+            const idx = pickStar();
+            hoverState.lastIdx = idx;
+            hoverState.handler(
+                idx >= 0 ? idx : null,
+                hoverState.clientX,
+                hoverState.clientY
+            );
+        }
 
         composer.render();
     }
     animate();
+
+    function onStarHover(handler) {
+        hoverState.handler = handler;
+    }
+
+    function fitControlsToTrip(distancePc) {
+        // Allow the orbit camera enough range to see both the ship and the
+        // far end of the trajectory comfortably.
+        const target = Math.max(80, distancePc * 8);
+        controls.maxDistance = target;
+    }
+    fitControlsToTrip(voyageData.metadata?.total_distance_pc || 1.3);
 
     return {
         scene, camera, renderer, controls, composer,
@@ -154,7 +255,41 @@ export function createScene(starsData, voyageData, Voyage) {
         constellations,
         lightHorizon,
         voyageData,
+        onStarHover,
+        onStarClick,
+        fitControlsToTrip,
     };
+}
+
+/**
+ * Rebuild the trajectory line geometry from a fresh voyageData.trajectory.
+ * Call this after voyage-engine.setVoyage() changes the destination/speed.
+ */
+export function rebuildTrajectory(state, voyageData) {
+    const traj = voyageData.trajectory;
+    const n = traj.length;
+    const positions = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+        positions[i * 3]     = traj[i].x;
+        positions[i * 3 + 1] = traj[i].y;
+        positions[i * 3 + 2] = traj[i].z;
+    }
+    state.trajectory.future.geometry.dispose();
+    state.trajectory.past.geometry.dispose();
+    const futureGeo = new THREE.BufferGeometry();
+    futureGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    state.trajectory.future.geometry = futureGeo;
+
+    const pastGeo = new THREE.BufferGeometry();
+    pastGeo.setAttribute('position', new THREE.BufferAttribute(positions.slice(), 3));
+    pastGeo.setDrawRange(0, 1);
+    state.trajectory.past.geometry = pastGeo;
+    state.trajectory.totalCount = n;
+    state.voyageData = voyageData;
+
+    if (typeof state.fitControlsToTrip === 'function') {
+        state.fitControlsToTrip(voyageData.metadata?.total_distance_pc || 1.3);
+    }
 }
 
 function createStarField(starsData, Voyage) {
