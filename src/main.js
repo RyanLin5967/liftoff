@@ -143,7 +143,6 @@ async function setup() {
     const scene = createScene(starsData, voyageData, Voyage);
     const ui = createUI(voyageData);
 
-    let audioStarted = false;
     let muted = false;
     const seenMilestones = new Set();
 
@@ -163,21 +162,17 @@ async function setup() {
     }
 
     function tryStartAudio() {
-        if (!Audio || audioStarted) return;
+        if (!Audio) return;
         Audio.start();
-        audioStarted = true;
-        Audio.setMasterVolume(muted ? 0 : 0.3);
+        Audio.setMasterVolume(muted ? 0 : 0.6);
         Audio.update(parseFloat(ui.slider.value) || 0, Voyage.getLightHorizon().ship_year);
     }
 
     // Attempt autoplay; browsers may block until first user gesture.
     tryStartAudio();
-    const gestureEvents = ['pointerdown', 'keydown', 'touchstart'];
-    const onFirstGesture = () => {
-        tryStartAudio();
-        for (const evt of gestureEvents) document.removeEventListener(evt, onFirstGesture);
-    };
-    for (const evt of gestureEvents) document.addEventListener(evt, onFirstGesture, { once: false });
+    const gestureEvents = ['pointerdown', 'keydown', 'touchstart', 'click'];
+    const onGesture = () => tryStartAudio();
+    for (const evt of gestureEvents) document.addEventListener(evt, onGesture);
 
     ui.slider.addEventListener('input', (e) => {
         tryStartAudio();

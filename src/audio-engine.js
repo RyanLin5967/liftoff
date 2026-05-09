@@ -29,6 +29,7 @@ export async function init() {
     masterGain.connect(audioCtx.destination);
 
     radioGain = audioCtx.createGain();
+    radioGain.gain.value = 1.0;
     radioGain.connect(masterGain);
 
     try {
