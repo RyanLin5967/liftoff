@@ -1,5 +1,5 @@
-import { createScene, updateScene, onPinClick } from './scene.js';
-import { createUI, updateUI, showMilestone, openPinPopup, setMuted } from './ui.js';
+import { createScene, updateScene } from './scene.js';
+import { createUI, updateUI, showMilestone, openPinPopup, setMuted, onTimelinePinClick } from './ui.js';
 
 let Voyage = null;
 let Audio = null;
@@ -151,7 +151,7 @@ async function setup() {
     updateScene(scene, initialWp, Voyage);
     updateUI(ui, initialWp, Voyage);
 
-    onPinClick((pin) => openPinPopup(ui, pin));
+    onTimelinePinClick(ui, (pin) => openPinPopup(ui, pin));
 
     ui.slider.addEventListener('input', (e) => {
         if (Audio && !audioStarted) {

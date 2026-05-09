@@ -25,11 +25,6 @@ const STAR_FRAGMENT = `
     }
 `;
 
-const pinClickHandlers = [];
-export function onPinClick(handler) {
-    pinClickHandlers.push(handler);
-}
-
 export function createScene(starsData, voyageData, Voyage) {
     const container = document.getElementById('canvas-container');
 
@@ -71,10 +66,6 @@ export function createScene(starsData, voyageData, Voyage) {
     const constellations = new THREE.Group();
     scene.add(constellations);
 
-    const pinGroup = new THREE.Group();
-    scene.add(pinGroup);
-    const pinSprites = createPinSprites(voyageData.pins, voyageData.trajectory, pinGroup);
-
     const lightHorizon = createLightHorizonSphere();
     scene.add(lightHorizon);
 
@@ -88,24 +79,6 @@ export function createScene(starsData, voyageData, Voyage) {
         0.82
     );
     composer.addPass(bloom);
-
-    // Pin click raycasting
-    const raycaster = new THREE.Raycaster();
-    raycaster.params.Points.threshold = 0.05;
-    const mouse = new THREE.Vector2();
-
-    renderer.domElement.addEventListener('pointerdown', (event) => {
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-        raycaster.setFromCamera(mouse, camera);
-        const hits = raycaster.intersectObjects(pinSprites.map((p) => p.sprite), false);
-        if (hits.length > 0) {
-            const hit = hits[0].object;
-            const pin = pinSprites.find((p) => p.sprite === hit);
-            if (pin) pinClickHandlers.forEach((h) => h(pin.data));
-        }
-    });
 
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -121,9 +94,6 @@ export function createScene(starsData, voyageData, Voyage) {
 
         const t = performance.now() * 0.001;
         shipMarker.material.opacity = 0.6 + 0.3 * Math.sin(t * 2.0);
-        for (const p of pinSprites) {
-            p.sprite.material.opacity = 0.6 + 0.25 * Math.sin(t * 1.4 + p.phase);
-        }
 
         composer.render();
     }
@@ -136,7 +106,6 @@ export function createScene(starsData, voyageData, Voyage) {
         trajectory,
         shipMarker,
         constellations,
-        pinSprites,
         lightHorizon,
         voyageData,
     };
@@ -212,36 +181,6 @@ function createShipMarker() {
     return mesh;
 }
 
-function createPinSprites(pins, trajectory, group) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
-    grad.addColorStop(0, 'rgba(255, 220, 140, 1)');
-    grad.addColorStop(0.4, 'rgba(255, 180, 90, 0.7)');
-    grad.addColorStop(1, 'rgba(255, 140, 60, 0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 64, 64);
-    const tex = new THREE.CanvasTexture(canvas);
-
-    return pins.map((pin) => {
-        const wp = trajectory[pin.waypoint_index] ?? trajectory[0];
-        const material = new THREE.SpriteMaterial({
-            map: tex,
-            color: 0xffffff,
-            transparent: true,
-            opacity: 0.8,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending,
-        });
-        const sprite = new THREE.Sprite(material);
-        sprite.position.set(wp.x, wp.y, wp.z);
-        sprite.scale.setScalar(0.06);
-        group.add(sprite);
-        return { sprite, data: pin, basePos: new THREE.Vector3(wp.x, wp.y, wp.z), phase: Math.random() * Math.PI * 2 };
-    });
-}
-
 function createLightHorizonSphere() {
     const geometry = new THREE.SphereGeometry(1, 32, 32);
     const material = new THREE.MeshBasicMaterial({
@@ -269,11 +208,6 @@ export function updateScene(state, wp, Voyage) {
     // Reveal "past" portion up to current waypoint
     const drawCount = Math.max(2, Math.min(state.trajectory.totalCount, wp.waypointIndex + 1));
     state.trajectory.past.geometry.setDrawRange(0, drawCount);
-
-    // Move pins relative to ship
-    for (const p of state.pinSprites) {
-        p.sprite.position.set(p.basePos.x - wp.x, p.basePos.y - wp.y, p.basePos.z - wp.z);
-    }
 
     // Light horizon sphere — radius is current Earth-light distance in parsecs
     // earthLightYear is years of Earth time; convert relative growth roughly to parsecs.

@@ -7,12 +7,16 @@ export function createUI(voyageData) {
     const popup = document.getElementById('pin-popup');
     const popupClose = popup.querySelector('.close');
     const milestoneToast = document.getElementById('milestone-toast');
+    const timelinePins = document.getElementById('timeline-pins');
 
+    const totalYears = voyageData?.metadata?.total_years ?? 250;
     if (voyageData?.metadata?.total_years) {
-        slider.max = voyageData.metadata.total_years;
+        slider.max = totalYears;
     }
 
     popupClose.addEventListener('click', () => closePinPopup({ popup }));
+
+    const pinElements = renderTimelinePins(timelinePins, voyageData?.pins ?? [], totalYears);
 
     return {
         slider,
@@ -22,8 +26,39 @@ export function createUI(voyageData) {
         muteButton,
         popup,
         milestoneToast,
+        timelinePins,
+        pinElements,
+        totalYears,
         _toastTimer: null,
     };
+}
+
+function renderTimelinePins(container, pins, totalYears) {
+    container.innerHTML = '';
+    return pins.map((pin) => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'timeline-pin';
+        el.style.left = `${(pin.year / totalYears) * 100}%`;
+        el.setAttribute('aria-label', `Year ${pin.year} — ${pin.title}`);
+
+        const label = document.createElement('span');
+        label.className = 'pin-label';
+        label.textContent = `Year ${pin.year} · ${pin.title}`;
+        el.appendChild(label);
+
+        container.appendChild(el);
+        return { el, data: pin };
+    });
+}
+
+export function onTimelinePinClick(ui, handler) {
+    for (const { el, data } of ui.pinElements) {
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handler(data);
+        });
+    }
 }
 
 export function updateUI(ui, wp, Voyage) {
@@ -49,6 +84,12 @@ export function updateUI(ui, wp, Voyage) {
     const vis = ui.solStatus.querySelector('.visibility');
     mag.textContent = wp.solMag.toFixed(2);
     vis.textContent = solVisibilityLabel(wp.solMag);
+
+    if (ui.pinElements) {
+        for (const { el, data } of ui.pinElements) {
+            el.classList.toggle('active', Math.abs(data.year - wp.year) < 2);
+        }
+    }
 }
 
 function solVisibilityLabel(mag) {
