@@ -1,4 +1,4 @@
-import { createScene, updateScene } from './scene.js';
+import { createScene, updateScene, rebuildTrajectory } from './scene.js';
 import {
     createUI,
     updateUI,
@@ -10,10 +10,41 @@ import {
     addTimelinePin,
     showStarTooltip,
     hideStarTooltip,
+    openSetupModal,
+    populateSetupOptions,
+    onSetupSubmit,
+    openStarDetail,
+    onStarSetDestination,
+    applyVoyageMetadata,
+    rebuildTimeline,
+    onSpeedChange,
 } from './ui.js';
 
 const PARSEC_TO_LY = 3.26156;
 const EARTH_DEPARTURE_YEAR = 2750;
+const VOYAGE_CONFIG_STORAGE_KEY = 'voyage:config:v1';
+
+function loadVoyageConfig() {
+    try {
+        const raw = localStorage.getItem(VOYAGE_CONFIG_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return null;
+        if (!Number.isFinite(parsed.destinationStarId)) return null;
+        if (!Number.isFinite(parsed.speedC)) return null;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+function saveVoyageConfig(config) {
+    try {
+        localStorage.setItem(VOYAGE_CONFIG_STORAGE_KEY, JSON.stringify(config));
+    } catch (e) {
+        console.warn('Failed to save voyage config', e);
+    }
+}
 
 function colorDescriptor(r, g, b) {
     if (b > r + 25 && b > g) return 'Blue-white (hot)';
@@ -205,66 +236,133 @@ async function setup() {
     let muted = false;
     const seenMilestones = new Set();
 
+    // Populate the destination picker from named stars (if engine supports it).
+    let namedStars = [];
+    if (typeof Voyage.getNamedStars === 'function') {
+        namedStars = Voyage.getNamedStars(50);
+        const savedConfig = loadVoyageConfig();
+        const initialDestId = savedConfig?.destinationStarId
+            ?? voyageData.metadata?.destination?.id
+            ?? namedStars[0]?.id;
+        const initialSpeed = savedConfig?.speedC
+            ?? voyageData.metadata?.ship_speed_c
+            ?? 0.05;
+        populateSetupOptions(ui, namedStars, initialDestId, initialSpeed);
+    }
+
     const initialWp = Voyage.getWaypoint(0);
     updateScene(scene, initialWp, Voyage);
     updateUI(ui, initialWp, Voyage);
+    applyVoyageMetadata(ui, voyageData.metadata);
 
     onTimelinePinClick(ui, (pin) => openPinPopup(ui, pin));
 
+    function buildStarInfo(star) {
+        const wp = Voyage.getWaypoint(parseFloat(ui.slider.value) || 0);
+        const dx = star.x - wp.x;
+        const dy = star.y - wp.y;
+        const dz = star.z - wp.z;
+        const distShipPc = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const distSolPc = Math.sqrt(star.x * star.x + star.y * star.y + star.z * star.z);
+        const distShipLy = distShipPc * PARSEC_TO_LY;
+        const distSolLy = distSolPc * PARSEC_TO_LY;
+
+        let magShip = star.mag;
+        if (distSolPc > 0 && distShipPc > 0) {
+            const absMag = star.mag - 5 * Math.log10(distSolPc / 10);
+            magShip = absMag + 5 * Math.log10(distShipPc / 10);
+        }
+
+        let lightEmittedYear = null;
+        let lightEmittedYearLabel = null;
+        if (Number.isFinite(distShipLy)) {
+            const calendarNow = EARTH_DEPARTURE_YEAR + wp.year;
+            lightEmittedYear = calendarNow - distShipLy;
+            lightEmittedYearLabel = lightEmittedYear < 0
+                ? `${Math.abs(lightEmittedYear).toFixed(0)} BCE`
+                : `${Math.round(lightEmittedYear)} CE`;
+        }
+
+        return {
+            id: star.id,
+            hipId: star.id,
+            name: star.name || `Unnamed star`,
+            r: star.r, g: star.g, b: star.b,
+            colorDesc: colorDescriptor(star.r, star.g, star.b),
+            distFromShipLy: distShipLy,
+            distFromSolLy: distSolLy,
+            magShip,
+            magEarth: star.mag,
+            lightEmittedYear,
+            lightEmittedYearLabel,
+        };
+    }
+
     if (typeof scene.onStarHover === 'function') {
         scene.onStarHover((idx, clientX, clientY) => {
-            if (idx == null) {
-                hideStarTooltip(ui);
-                return;
-            }
+            if (idx == null) { hideStarTooltip(ui); return; }
             const star = starsData[idx];
-            if (!star) {
-                hideStarTooltip(ui);
-                return;
-            }
-            const wp = Voyage.getWaypoint(parseFloat(ui.slider.value) || 0);
-            const dx = star.x - wp.x;
-            const dy = star.y - wp.y;
-            const dz = star.z - wp.z;
-            const distShipPc = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            const distSolPc = Math.sqrt(star.x * star.x + star.y * star.y + star.z * star.z);
-            const distShipLy = distShipPc * PARSEC_TO_LY;
-            const distSolLy = distSolPc * PARSEC_TO_LY;
-
-            // Apparent magnitude from current ship position.
-            // Derive absolute magnitude from the Earth-based mag, then re-apply
-            // the distance-modulus formula at our distance.
-            let magShip = star.mag;
-            if (distSolPc > 0 && distShipPc > 0) {
-                const absMag = star.mag - 5 * Math.log10(distSolPc / 10);
-                magShip = absMag + 5 * Math.log10(distShipPc / 10);
-            }
-
-            // Calendar year light reaching the ship was emitted.
-            // Light travels at 1 ly/yr; we are at calendar year (2750 + ship_year).
-            let lightEmittedYear = null;
-            let lightEmittedYearLabel = null;
-            if (Number.isFinite(distShipLy)) {
-                const calendarNow = EARTH_DEPARTURE_YEAR + wp.year;
-                lightEmittedYear = calendarNow - distShipLy;
-                lightEmittedYearLabel = lightEmittedYear < 0
-                    ? `${Math.abs(lightEmittedYear).toFixed(0)} BCE`
-                    : `${Math.round(lightEmittedYear)} CE`;
-            }
-
-            showStarTooltip(ui, {
-                name: star.name || `Unnamed star`,
-                hipId: star.id,
-                r: star.r, g: star.g, b: star.b,
-                colorDesc: colorDescriptor(star.r, star.g, star.b),
-                distFromShipLy: distShipLy,
-                distFromSolLy: distSolLy,
-                magShip,
-                magEarth: star.mag,
-                lightEmittedYear,
-                lightEmittedYearLabel,
-            }, clientX, clientY);
+            if (!star) { hideStarTooltip(ui); return; }
+            showStarTooltip(ui, buildStarInfo(star), clientX, clientY);
         });
+    }
+
+    if (typeof scene.onStarClick === 'function') {
+        scene.onStarClick((idx) => {
+            const star = starsData[idx];
+            if (!star) return;
+            const info = buildStarInfo(star);
+            const currentDestId = voyageData.metadata?.destination?.id;
+            hideStarTooltip(ui);
+            openStarDetail(ui, info, star.id === currentDestId);
+        });
+    }
+
+    onStarSetDestination(ui, (info) => {
+        const speed = voyageData.metadata?.ship_speed_c ?? 0.05;
+        applyVoyage({ destinationStarId: info.id, speedC: speed });
+    });
+
+    onSpeedChange(ui, (newSpeed) => {
+        const destId = voyageData.metadata?.destination?.id;
+        if (destId == null) return;
+        applyVoyage({ destinationStarId: destId, speedC: newSpeed });
+    });
+
+    function applyVoyage({ destinationStarId, speedC }) {
+        if (typeof Voyage.setVoyage !== 'function') {
+            console.warn('Current engine does not support setVoyage; ignoring');
+            return;
+        }
+        Voyage.setVoyage({ destinationStarId, speedC });
+        saveVoyageConfig({ destinationStarId, speedC });
+
+        rebuildTrajectory(scene, voyageData);
+        applyVoyageMetadata(ui, voyageData.metadata);
+        rebuildTimeline(ui, voyageData.pins, voyageData.metadata.total_years);
+        seenMilestones.clear();
+
+        const wp = Voyage.getWaypoint(parseFloat(ui.slider.value) || 0);
+        updateScene(scene, wp, Voyage);
+        updateUI(ui, wp, Voyage);
+    }
+
+    onSetupSubmit(ui, (config) => {
+        applyVoyage(config);
+    });
+
+    // Hydrate from localStorage; or prompt the user on first visit.
+    {
+        const saved = loadVoyageConfig();
+        if (saved && typeof Voyage.setVoyage === 'function') {
+            applyVoyage(saved);
+        } else if (
+            namedStars.length > 0 &&
+            typeof Voyage.setVoyage === 'function'
+        ) {
+            // First-time visitor: open the planner modal.
+            openSetupModal(ui);
+        }
     }
 
     onMemorySubmit(ui, (entry) => {

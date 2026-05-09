@@ -227,3 +227,171 @@ export function getTrajectoryPositions(shipX, shipY, shipZ) {
   }
   return positions;
 }
+
+const PARSEC_TO_LY = 3.26156;
+const SOL_ABS_MAG = 4.83;
+const DEFAULT_DEPARTURE_YEAR = 2750;
+const SIGNAL_HORIZON_LY = 3.5;
+const TOTAL_WAYPOINTS = 1000;
+
+/**
+ * Recompute the entire voyage in-memory based on a destination star and ship speed.
+ * Mutates voyageData.trajectory, .milestones, .light_horizon, .metadata.
+ *
+ * @param {Object} opts
+ * @param {number} opts.destinationStarId  HIP id of a star in starsData
+ * @param {number} opts.speedC             Ship speed as a fraction of c (0 < speedC < 1)
+ * @returns {Object} the updated voyageData
+ */
+export function setVoyage({ destinationStarId, speedC }) {
+  if (!starsData || !voyageData) {
+    throw new Error('setVoyage called before init()');
+  }
+  const dest = starsData.find((s) => s.id === destinationStarId);
+  if (!dest) throw new Error(`No star with HIP ${destinationStarId}`);
+  if (!Number.isFinite(speedC) || speedC <= 0 || speedC >= 1) {
+    throw new Error(`Speed must be 0 < speedC < 1 (fraction of c); got ${speedC}`);
+  }
+
+  const distance_pc = Math.hypot(dest.x, dest.y, dest.z);
+  const distance_ly = distance_pc * PARSEC_TO_LY;
+  const speed_ly_per_year = speedC; // c == 1 ly/yr
+  const total_years = distance_ly / speed_ly_per_year;
+  const total_waypoints = TOTAL_WAYPOINTS;
+  const departureEarthYear = DEFAULT_DEPARTURE_YEAR;
+  const destName = dest.name || `HIP ${dest.id}`;
+
+  // Trajectory: linear interpolation Sol → destination over `total_years`.
+  const trajectory = new Array(total_waypoints);
+  for (let i = 0; i < total_waypoints; i++) {
+    const t = i / (total_waypoints - 1);
+    const year = t * total_years;
+    const x = dest.x * t;
+    const y = dest.y * t;
+    const z = dest.z * t;
+    const distFromSolPc = Math.hypot(x, y, z);
+    const distFromSolLy = distFromSolPc * PARSEC_TO_LY;
+    // Earth's calendar year whose light is currently reaching the ship.
+    // Light from year Y arrives at the ship at ship-year (Y - dep) + dist_from_sol_ly,
+    // so for ship-year `year` and ship distance `distFromSolLy`:
+    //     Y = dep + year - distFromSolLy
+    const earthLightYear = departureEarthYear + year - distFromSolLy;
+    const solMag =
+      distFromSolPc > 0 ? SOL_ABS_MAG + 5 * Math.log10(distFromSolPc / 10) : -26.74;
+
+    trajectory[i] = {
+      index: i,
+      year,
+      x,
+      y,
+      z,
+      earth_light_year: earthLightYear,
+      sol_mag: solMag,
+    };
+  }
+
+  // Light horizon: signal undetectable beyond SIGNAL_HORIZON_LY from Earth.
+  // Cap at 85% of trip distance so it's always before destination.
+  const horizonDistanceLy = Math.min(SIGNAL_HORIZON_LY, 0.85 * distance_ly);
+  const horizonShipYear = horizonDistanceLy / speed_ly_per_year;
+  const horizonWaypointIndex = Math.min(
+    total_waypoints - 1,
+    Math.round((horizonShipYear / total_years) * (total_waypoints - 1))
+  );
+  const horizonEarthLightYear = departureEarthYear + horizonShipYear - horizonDistanceLy;
+
+  // Milestones — recomputed each setVoyage. Hand-crafted/user-added pins live
+  // in voyageData.pins and are NOT touched here.
+  const milestones = [];
+  let solInvisibleIdx = -1;
+  for (let i = 0; i < total_waypoints; i++) {
+    if (trajectory[i].sol_mag > 6) { solInvisibleIdx = i; break; }
+  }
+  if (solInvisibleIdx >= 0) {
+    milestones.push({
+      waypoint_index: solInvisibleIdx,
+      year: trajectory[solInvisibleIdx].year,
+      label: 'Sol drops below naked-eye visibility',
+      type: 'sol',
+    });
+  }
+  const halfIdx = Math.floor(total_waypoints / 2);
+  milestones.push({
+    waypoint_index: halfIdx,
+    year: trajectory[halfIdx].year,
+    label: `Halfway to ${destName}`,
+    type: 'distance',
+  });
+  milestones.push({
+    waypoint_index: horizonWaypointIndex,
+    year: horizonShipYear,
+    label: 'Light horizon — Earth signal fades',
+    type: 'horizon',
+  });
+  milestones.push({
+    waypoint_index: total_waypoints - 1,
+    year: total_years,
+    label: `Arrival at ${destName}`,
+    type: 'destination',
+  });
+
+  voyageData.trajectory = trajectory;
+  voyageData.light_horizon = {
+    ship_year: horizonShipYear,
+    last_earth_year: Math.round(horizonEarthLightYear),
+    waypoint_index: horizonWaypointIndex,
+  };
+  voyageData.milestones = milestones;
+  voyageData.metadata = {
+    ...(voyageData.metadata || {}),
+    total_years,
+    total_distance_pc: distance_pc,
+    total_distance_ly: distance_ly,
+    total_waypoints,
+    ship_speed_ly_per_year: speed_ly_per_year,
+    ship_speed_c: speedC,
+    departure_earth_year: departureEarthYear,
+    destination_name: destName,
+    destination: { x: dest.x, y: dest.y, z: dest.z, name: destName, id: dest.id },
+    proxima: { x: dest.x, y: dest.y, z: dest.z }, // legacy alias
+    sol: { x: 0, y: 0, z: 0 },
+  };
+
+  // Recompute waypoint_index for any user-added pins so getActivePins keeps
+  // working when total_years changes.
+  if (Array.isArray(voyageData.pins)) {
+    for (const pin of voyageData.pins) {
+      if (typeof pin.year === 'number' && total_years > 0) {
+        const t = Math.max(0, Math.min(1, pin.year / total_years));
+        pin.waypoint_index = Math.round(t * (total_waypoints - 1));
+      }
+    }
+  }
+
+  return voyageData;
+}
+
+/**
+ * Helper for the destination picker: returns named stars sorted by distance.
+ */
+export function getNamedStars(maxLy = 50) {
+  if (!starsData) return [];
+  const maxPc = maxLy / PARSEC_TO_LY;
+  const out = [];
+  for (const s of starsData) {
+    if (!s.name) continue;
+    const dPc = Math.hypot(s.x, s.y, s.z);
+    if (dPc > maxPc) continue;
+    out.push({ id: s.id, name: s.name, distancePc: dPc, distanceLy: dPc * PARSEC_TO_LY });
+  }
+  out.sort((a, b) => a.distancePc - b.distancePc);
+  return out;
+}
+
+/**
+ * Look up a single star by HIP id.
+ */
+export function getStarById(id) {
+  if (!starMap) return null;
+  return starMap.get(id) || null;
+}
