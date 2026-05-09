@@ -5,6 +5,8 @@ import {
     showMilestone,
     openPinPopup,
     setMuted,
+    setPlaying,
+    updateJourneyPanel,
     onTimelinePinClick,
     onMemorySubmit,
     addTimelinePin,
@@ -253,6 +255,7 @@ async function setup() {
     const initialWp = Voyage.getWaypoint(0);
     updateScene(scene, initialWp, Voyage);
     updateUI(ui, initialWp, Voyage);
+    updateJourneyPanel(ui, initialWp, Voyage);
     applyVoyageMetadata(ui, voyageData.metadata);
 
     onTimelinePinClick(ui, (pin) => openPinPopup(ui, pin));
@@ -345,6 +348,7 @@ async function setup() {
         const wp = Voyage.getWaypoint(parseFloat(ui.slider.value) || 0);
         updateScene(scene, wp, Voyage);
         updateUI(ui, wp, Voyage);
+        updateJourneyPanel(ui, wp, Voyage);
 
         if (typeof scene.resetView === 'function') scene.resetView();
     }
@@ -352,6 +356,77 @@ async function setup() {
     const resetViewButton = document.getElementById('reset-view-button');
     if (resetViewButton && typeof scene.resetView === 'function') {
         resetViewButton.addEventListener('click', () => scene.resetView());
+    }
+
+    // ─── Real-time playback ───────────────────────────────────────────────
+    // When playing, advance the slider's `value` by `playbackRate` ship-years
+    // per real-time second. We piggyback on the slider's existing 'input'
+    // handler so scene/UI/audio updates fall out for free.
+    let isPlaying = false;
+    let playbackRate = parseFloat(ui.settingPlaybackRate?.value) || 2;
+    let lastTickTime = 0;
+    let rafId = 0;
+    let scrubbingFromTick = false; // ignore our own pointerdown-pause when ticking
+
+    function tick(now) {
+        if (!isPlaying) return;
+        if (lastTickTime === 0) lastTickTime = now;
+        const dt = Math.min(0.25, (now - lastTickTime) / 1000); // clamp big stalls
+        lastTickTime = now;
+
+        const totalYears = voyageData.metadata?.total_years ?? 250;
+        let year = parseFloat(ui.slider.value) + dt * playbackRate;
+        let reachedEnd = false;
+        if (year >= totalYears) {
+            year = totalYears;
+            reachedEnd = true;
+        }
+        scrubbingFromTick = true;
+        ui.slider.value = year;
+        ui.slider.dispatchEvent(new Event('input', { bubbles: true }));
+        scrubbingFromTick = false;
+
+        if (reachedEnd) {
+            setIsPlaying(false);
+            return;
+        }
+        rafId = requestAnimationFrame(tick);
+    }
+
+    function setIsPlaying(playing) {
+        if (playing === isPlaying) return;
+        isPlaying = playing;
+        setPlaying(ui, isPlaying);
+        if (isPlaying) {
+            // If we're already at the end, rewind so play makes sense.
+            const totalYears = voyageData.metadata?.total_years ?? 250;
+            if (parseFloat(ui.slider.value) >= totalYears - 0.001) {
+                ui.slider.value = 0;
+            }
+            lastTickTime = 0;
+            rafId = requestAnimationFrame(tick);
+        } else {
+            cancelAnimationFrame(rafId);
+        }
+    }
+
+    if (ui.playButton) {
+        ui.playButton.addEventListener('click', () => setIsPlaying(!isPlaying));
+    }
+
+    // Manual scrub auto-pauses playback (so user input wins).
+    ui.slider.addEventListener('pointerdown', () => {
+        if (!scrubbingFromTick) setIsPlaying(false);
+    });
+    ui.slider.addEventListener('keydown', () => {
+        if (!scrubbingFromTick) setIsPlaying(false);
+    });
+
+    if (ui.settingPlaybackRate) {
+        ui.settingPlaybackRate.addEventListener('change', () => {
+            const v = parseFloat(ui.settingPlaybackRate.value);
+            if (Number.isFinite(v) && v > 0) playbackRate = v;
+        });
     }
 
     onSetupSubmit(ui, (config) => {
@@ -419,6 +494,7 @@ async function setup() {
 
         updateScene(scene, wp, Voyage);
         updateUI(ui, wp, Voyage);
+        updateJourneyPanel(ui, wp, Voyage);
 
         if (Audio && !muted) {
             Audio.update(year, Voyage.getLightHorizon().ship_year);

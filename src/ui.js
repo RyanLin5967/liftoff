@@ -13,11 +13,12 @@ export function createUI(voyageData) {
     const settingsPanel = document.getElementById('settings-panel');
     const settingsClose = settingsPanel.querySelector('.settings-close');
     const settingsDestination = document.getElementById('settings-destination');
-    const settingDuration = document.getElementById('setting-duration');
     const settingStart = document.getElementById('setting-start');
     const settingStep = document.getElementById('setting-step');
     const settingReset = document.getElementById('setting-reset');
     const settingSpeed = document.getElementById('setting-speed');
+    const settingPlaybackRate = document.getElementById('setting-playback-rate');
+    const playButton = document.getElementById('play-button');
     const settingChangeDestination = document.getElementById('setting-change-destination');
     const setupOverlay = document.getElementById('setup-overlay');
     const setupDestination = document.getElementById('setup-destination');
@@ -39,6 +40,7 @@ export function createUI(voyageData) {
     const memoryAuthor = document.getElementById('memory-author');
     const memoryText = document.getElementById('memory-text');
     const starTooltip = document.getElementById('star-tooltip');
+    const journeyPanel = document.getElementById('journey-panel');
 
     const totalYears = voyageData?.metadata?.total_years ?? 250;
     const destinationName =
@@ -46,12 +48,13 @@ export function createUI(voyageData) {
         voyageData?.metadata?.destination?.name ??
         'Proxima Centauri';
 
-    const defaults = { duration: totalYears, start: 0, step: 0.1 };
+    const defaults = { start: 0, step: 0.1 };
 
+    // Trip duration (slider.max) is derived from the active voyage and updated
+    // by applyVoyageMetadata(); we only own start + step here.
     slider.min = defaults.start;
-    slider.max = defaults.duration;
+    slider.max = totalYears;
     slider.step = defaults.step;
-    settingDuration.value = defaults.duration;
     settingStart.value = defaults.start;
     settingStep.value = defaults.step;
 
@@ -97,6 +100,9 @@ export function createUI(voyageData) {
         memoryAuthor,
         memoryText,
         starTooltip,
+        journeyPanel,
+        playButton,
+        settingPlaybackRate,
         _toastTimer: null,
         _totalYears: totalYears,
         _memorySubmitHandler: null,
@@ -108,20 +114,16 @@ export function createUI(voyageData) {
     };
 
     function applyTimelineSettings() {
-        const duration = clampNumber(parseFloat(settingDuration.value), 1, 5000, defaults.duration);
+        const duration = ui._totalYears;
         const start = clampNumber(parseFloat(settingStart.value), 0, duration - 0.1, 0);
         const step = clampNumber(parseFloat(settingStep.value), 0.01, 50, defaults.step);
 
         // Echo clamped values back into the inputs so the user sees what was applied
-        settingDuration.value = duration;
         settingStart.value = start;
         settingStep.value = step;
 
         slider.min = start;
-        slider.max = duration;
         slider.step = step;
-
-        ui._totalYears = duration;
 
         let current = parseFloat(slider.value);
         if (!Number.isFinite(current)) current = start;
@@ -179,11 +181,9 @@ export function createUI(voyageData) {
         });
     }
     // 'change' covers blur/Enter/spinner clicks; 'input' alone would re-clamp every keystroke.
-    settingDuration.addEventListener('change', applyTimelineSettings);
     settingStart.addEventListener('change', applyTimelineSettings);
     settingStep.addEventListener('change', applyTimelineSettings);
     settingReset.addEventListener('click', () => {
-        settingDuration.value = defaults.duration;
         settingStart.value = defaults.start;
         settingStep.value = defaults.step;
         applyTimelineSettings();
@@ -331,6 +331,73 @@ export function updateUI(ui, wp, Voyage) {
     }
 }
 
+export function updateJourneyPanel(ui, wp, Voyage) {
+    if (!ui.journeyPanel) return;
+    const meta = (typeof Voyage.getMetadata === 'function')
+        ? (Voyage.getMetadata() || {})
+        : {};
+    const totalYears = meta.total_years ?? ui._totalYears ?? 250;
+    const distLy = meta.total_distance_ly
+        ?? (meta.total_distance_pc != null ? meta.total_distance_pc * 3.26156 : 4.244);
+    const speedLyYr = meta.ship_speed_ly_per_year ?? (distLy / totalYears);
+    const destName = meta.destination_name
+        ?? meta.destination?.name
+        ?? 'Destination';
+    const horizon = (typeof Voyage.getLightHorizon === 'function')
+        ? Voyage.getLightHorizon()
+        : null;
+
+    // Distances along the trajectory. These are facts the ship's nav computer
+    // would know — distance from Sol and remaining distance to destination.
+    const fromEarthLy = Math.min(distLy, wp.year * speedLyYr);
+    const toDestLy = Math.max(0, distLy - fromEarthLy);
+
+    const setText = (id, t) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = t;
+    };
+
+    setText(
+        'journey-arrival',
+        wp.year >= totalYears - 0.05
+            ? 'Arrived'
+            : `${(totalYears - wp.year).toFixed(1)} yrs to arrival`
+    );
+    setText('journey-from-earth', `${fromEarthLy.toFixed(2)} ly`);
+    setText('journey-to-dest', `${toDestLy.toFixed(2)} ly`);
+    setText('journey-dest-name', destName);
+
+    // Progress bar fill + horizon tick
+    const fillEl = document.getElementById('journey-fill');
+    if (fillEl) {
+        const pct = Math.max(0, Math.min(1, wp.year / totalYears)) * 100;
+        fillEl.style.width = `${pct}%`;
+    }
+    const horizonMark = document.getElementById('journey-horizon-mark');
+    if (horizonMark && horizon && Number.isFinite(horizon.ship_year)) {
+        const pct = Math.max(0, Math.min(1, horizon.ship_year / totalYears)) * 100;
+        horizonMark.style.left = `${pct}%`;
+    }
+
+    // Light horizon countdown / status
+    const horizonRow = document.getElementById('journey-horizon-row');
+    const horizonVal = document.getElementById('journey-horizon-val');
+    if (horizonRow && horizonVal && horizon) {
+        const delta = horizon.ship_year - wp.year;
+        horizonRow.classList.remove('crossed', 'imminent');
+        if (Math.abs(delta) < 0.5) {
+            horizonVal.textContent = 'Crossing now';
+            horizonRow.classList.add('imminent');
+        } else if (delta > 0) {
+            horizonVal.textContent = `in ${delta.toFixed(1)} yrs`;
+            if (delta < 10) horizonRow.classList.add('imminent');
+        } else {
+            horizonVal.textContent = `${Math.abs(delta).toFixed(1)} yrs ago — Earth's gone`;
+            horizonRow.classList.add('crossed');
+        }
+    }
+}
+
 function solVisibilityLabel(mag) {
     if (mag < -10) return 'Brilliant — like a small sun';
     if (mag < 0)   return 'Brighter than any star';
@@ -370,6 +437,13 @@ export function closePinPopup(ui) {
 export function setMuted(ui, muted) {
     ui.muteButton.textContent = muted ? '⊘' : '♪';
     ui.muteButton.title = muted ? 'Unmute' : 'Mute';
+}
+
+export function setPlaying(ui, playing) {
+    if (!ui.playButton) return;
+    ui.playButton.textContent = playing ? '⏸' : '▶';
+    ui.playButton.title = playing ? 'Pause voyage' : 'Play voyage';
+    ui.playButton.classList.toggle('playing', playing);
 }
 
 export function showStarTooltip(ui, info, clientX, clientY) {
@@ -533,8 +607,6 @@ export function applyVoyageMetadata(ui, metadata) {
     if (ui.settingSpeed && Number.isFinite(metadata?.ship_speed_c)) {
         ui.settingSpeed.value = metadata.ship_speed_c;
     }
-    const settingDuration = document.getElementById('setting-duration');
-    if (settingDuration) settingDuration.value = totalYears;
 }
 
 // === Speed change ===
