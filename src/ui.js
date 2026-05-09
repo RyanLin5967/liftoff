@@ -17,6 +17,16 @@ export function createUI(voyageData) {
     const settingStart = document.getElementById('setting-start');
     const settingStep = document.getElementById('setting-step');
     const settingReset = document.getElementById('setting-reset');
+    const addMemoryButton = document.getElementById('add-memory-button');
+    const memoryFormOverlay = document.getElementById('memory-form-overlay');
+    const memoryForm = document.getElementById('memory-form');
+    const memoryFormClose = memoryForm.querySelector('.form-close');
+    const memoryFormCancel = memoryForm.querySelector('button.cancel');
+    const memoryYear = document.getElementById('memory-year');
+    const memoryGen = document.getElementById('memory-generation');
+    const memoryTitle = document.getElementById('memory-title');
+    const memoryAuthor = document.getElementById('memory-author');
+    const memoryText = document.getElementById('memory-text');
 
     const totalYears = voyageData?.metadata?.total_years ?? 250;
     const destinationName =
@@ -54,8 +64,18 @@ export function createUI(voyageData) {
         settingsPanel,
         timelinePins,
         pinElements,
+        addMemoryButton,
+        memoryFormOverlay,
+        memoryForm,
+        memoryYear,
+        memoryGen,
+        memoryTitle,
+        memoryAuthor,
+        memoryText,
         _toastTimer: null,
         _totalYears: totalYears,
+        _memorySubmitHandler: null,
+        _pinClickHandler: null,
     };
 
     function applyTimelineSettings() {
@@ -98,7 +118,79 @@ export function createUI(voyageData) {
 
     popupClose.addEventListener('click', () => closePinPopup({ popup }));
 
+    addMemoryButton.addEventListener('click', () => openMemoryForm(ui));
+    memoryFormClose.addEventListener('click', () => closeMemoryForm(ui));
+    memoryFormCancel.addEventListener('click', () => closeMemoryForm(ui));
+    memoryFormOverlay.addEventListener('click', (e) => {
+        if (e.target === memoryFormOverlay) closeMemoryForm(ui);
+    });
+    memoryForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const pin = readMemoryForm(ui);
+        if (!pin) return;
+        if (ui._memorySubmitHandler) ui._memorySubmitHandler(pin);
+        closeMemoryForm(ui);
+    });
+
     return ui;
+}
+
+function readMemoryForm(ui) {
+    const year = parseFloat(ui.memoryYear.value);
+    if (!Number.isFinite(year) || year < 0) return null;
+    const generation = Math.max(1, Math.round(parseFloat(ui.memoryGen.value) || 1));
+    const title = ui.memoryTitle.value.trim();
+    const author = ui.memoryAuthor.value.trim();
+    const text = ui.memoryText.value.trim();
+    if (!title || !author || !text) return null;
+    return { year, generation, title, author, text };
+}
+
+export function openMemoryForm(ui, defaults = {}) {
+    ui.memoryForm.reset();
+    ui.memoryYear.value = defaults.year ?? (parseFloat(ui.slider.value) || 0);
+    ui.memoryGen.value = defaults.generation ?? 1;
+    ui.memoryTitle.value = defaults.title ?? '';
+    ui.memoryAuthor.value = defaults.author ?? '';
+    ui.memoryText.value = defaults.text ?? '';
+    ui.memoryFormOverlay.classList.add('open');
+    ui.memoryTitle.focus();
+}
+
+export function closeMemoryForm(ui) {
+    ui.memoryFormOverlay.classList.remove('open');
+}
+
+export function onMemorySubmit(ui, handler) {
+    ui._memorySubmitHandler = handler;
+}
+
+export function addTimelinePin(ui, pin) {
+    if (!ui.timelinePins) return null;
+    const totalYears = ui._totalYears;
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'timeline-pin' + (pin._userAdded ? ' user-pin' : '');
+    el.style.left = `${(pin.year / totalYears) * 100}%`;
+    el.setAttribute('aria-label', `Year ${pin.year} — ${pin.title}`);
+
+    const label = document.createElement('span');
+    label.className = 'pin-label';
+    label.textContent = `Year ${pin.year} · ${pin.title}`;
+    el.appendChild(label);
+
+    ui.timelinePins.appendChild(el);
+
+    const entry = { el, data: pin };
+    ui.pinElements.push(entry);
+
+    if (ui._pinClickHandler) {
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            ui._pinClickHandler(pin);
+        });
+    }
+    return entry;
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -111,7 +203,7 @@ function renderTimelinePins(container, pins, totalYears) {
     return pins.map((pin) => {
         const el = document.createElement('button');
         el.type = 'button';
-        el.className = 'timeline-pin';
+        el.className = 'timeline-pin' + (pin._userAdded ? ' user-pin' : '');
         el.style.left = `${(pin.year / totalYears) * 100}%`;
         el.setAttribute('aria-label', `Year ${pin.year} — ${pin.title}`);
 
@@ -126,6 +218,7 @@ function renderTimelinePins(container, pins, totalYears) {
 }
 
 export function onTimelinePinClick(ui, handler) {
+    ui._pinClickHandler = handler;
     for (const { el, data } of ui.pinElements) {
         el.addEventListener('click', (e) => {
             e.stopPropagation();

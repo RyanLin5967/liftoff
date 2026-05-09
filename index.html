@@ -256,7 +256,8 @@
         }
 
         #mute-button,
-        #settings-button {
+        #settings-button,
+        #add-memory-button {
             position: absolute;
             bottom: 28px;
             width: 38px;
@@ -277,10 +278,149 @@
 
         #mute-button { right: 28px; }
         #settings-button { right: 76px; font-size: 18px; }
+        #add-memory-button { right: 124px; font-size: 22px; line-height: 1; }
 
         #mute-button:hover,
-        #settings-button:hover {
+        #settings-button:hover,
+        #add-memory-button:hover {
             background: rgba(20, 30, 55, 0.8);
+        }
+
+        #memory-form-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(2, 4, 10, 0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 5;
+        }
+
+        #memory-form-overlay.open { display: flex; }
+
+        #memory-form {
+            width: min(440px, 92vw);
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 24px 26px;
+        }
+
+        #memory-form .form-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+        }
+
+        #memory-form .form-title {
+            font-size: 11px;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+        }
+
+        #memory-form .form-close {
+            background: transparent;
+            border: none;
+            color: #7a8aa8;
+            cursor: pointer;
+            font-size: 20px;
+            line-height: 1;
+            padding: 0;
+        }
+
+        #memory-form .form-close:hover { color: #fff; }
+
+        #memory-form .field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 14px;
+        }
+
+        #memory-form .field-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        #memory-form label {
+            font-size: 10px;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+        }
+
+        #memory-form input,
+        #memory-form textarea {
+            width: 100%;
+            padding: 8px 10px;
+            background: rgba(8, 14, 28, 0.85);
+            border: 1px solid rgba(140, 170, 220, 0.2);
+            border-radius: 3px;
+            color: #e8eef8;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            resize: vertical;
+        }
+
+        #memory-form textarea {
+            min-height: 110px;
+        }
+
+        #memory-form input:focus,
+        #memory-form textarea:focus {
+            border-color: rgba(180, 210, 255, 0.55);
+        }
+
+        #memory-form .form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        #memory-form button[type="submit"],
+        #memory-form button[type="button"].cancel {
+            flex: 1;
+            padding: 10px;
+            border-radius: 3px;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        #memory-form button[type="submit"] {
+            background: rgba(80, 130, 220, 0.55);
+            border: 1px solid rgba(180, 210, 255, 0.5);
+            color: #fff;
+        }
+
+        #memory-form button[type="submit"]:hover {
+            background: rgba(100, 150, 240, 0.7);
+        }
+
+        #memory-form button[type="button"].cancel {
+            background: rgba(20, 30, 55, 0.6);
+            border: 1px solid rgba(140, 170, 220, 0.2);
+            color: #cfe1ff;
+        }
+
+        #memory-form button[type="button"].cancel:hover {
+            background: rgba(40, 60, 100, 0.7);
+        }
+
+        .timeline-pin.user-pin {
+            background: rgba(180, 220, 255, 0.9);
+            box-shadow: 0 0 8px rgba(150, 200, 255, 0.7);
+            border-color: rgba(220, 235, 255, 0.95);
+        }
+
+        .timeline-pin.user-pin:hover,
+        .timeline-pin.user-pin.active {
+            background: #e6f1ff;
+            box-shadow: 0 0 14px rgba(200, 225, 255, 0.95);
         }
 
         #settings-panel {
@@ -529,8 +669,44 @@
             </div>
         </div>
 
+        <button id="add-memory-button" title="Add a memory entry">+</button>
         <button id="settings-button" title="Timeline settings">⚙</button>
         <button id="mute-button" title="Toggle audio">♪</button>
+
+        <div id="memory-form-overlay">
+            <form id="memory-form" class="panel" autocomplete="off">
+                <div class="form-header">
+                    <span class="form-title">New memory</span>
+                    <button type="button" class="form-close" aria-label="Close">×</button>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label for="memory-year">Year</label>
+                        <input id="memory-year" type="number" min="0" step="0.1" required>
+                    </div>
+                    <div class="field">
+                        <label for="memory-generation">Generation</label>
+                        <input id="memory-generation" type="number" min="1" step="1" value="1" required>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="memory-title">Title</label>
+                    <input id="memory-title" type="text" maxlength="80" required>
+                </div>
+                <div class="field">
+                    <label for="memory-author">Author</label>
+                    <input id="memory-author" type="text" maxlength="60" required>
+                </div>
+                <div class="field">
+                    <label for="memory-text">Entry</label>
+                    <textarea id="memory-text" maxlength="2000" required></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="cancel">Cancel</button>
+                    <button type="submit">Save memory</button>
+                </div>
+            </form>
+        </div>
 
         <div id="settings-panel" class="panel">
             <div class="settings-header">

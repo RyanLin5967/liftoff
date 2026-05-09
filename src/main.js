@@ -1,5 +1,42 @@
 import { createScene, updateScene } from './scene.js';
-import { createUI, updateUI, showMilestone, openPinPopup, setMuted, onTimelinePinClick } from './ui.js';
+import {
+    createUI,
+    updateUI,
+    showMilestone,
+    openPinPopup,
+    setMuted,
+    onTimelinePinClick,
+    onMemorySubmit,
+    addTimelinePin,
+} from './ui.js';
+
+const USER_PINS_STORAGE_KEY = 'voyage:user-pins:v1';
+
+function loadUserPins() {
+    try {
+        const raw = localStorage.getItem(USER_PINS_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveUserPins(pins) {
+    try {
+        localStorage.setItem(USER_PINS_STORAGE_KEY, JSON.stringify(pins));
+    } catch (e) {
+        console.warn('Failed to persist user pins', e);
+    }
+}
+
+function waypointIndexForYear(voyageData, year) {
+    const total = voyageData.metadata?.total_waypoints ?? voyageData.trajectory?.length ?? 1000;
+    const totalYears = voyageData.metadata?.total_years ?? 250;
+    const t = Math.max(0, Math.min(1, year / totalYears));
+    return Math.round(t * (total - 1));
+}
 
 let Voyage = null;
 let Audio = null;
@@ -140,6 +177,14 @@ async function setup() {
 
     const { starsData, voyageData } = await Voyage.init();
 
+    // Hydrate user-added memories from localStorage before the UI renders pins.
+    const userPins = loadUserPins();
+    for (const p of userPins) {
+        if (!voyageData.pins.some((existing) => existing._id === p._id)) {
+            voyageData.pins.push(p);
+        }
+    }
+
     const scene = createScene(starsData, voyageData, Voyage);
     const ui = createUI(voyageData);
 
@@ -151,6 +196,23 @@ async function setup() {
     updateUI(ui, initialWp, Voyage);
 
     onTimelinePinClick(ui, (pin) => openPinPopup(ui, pin));
+
+    onMemorySubmit(ui, (entry) => {
+        const pin = {
+            _id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            _userAdded: true,
+            waypoint_index: waypointIndexForYear(voyageData, entry.year),
+            year: entry.year,
+            generation: entry.generation,
+            title: entry.title,
+            author: entry.author,
+            text: entry.text,
+        };
+        voyageData.pins.push(pin);
+        saveUserPins(voyageData.pins.filter((p) => p._userAdded));
+        addTimelinePin(ui, pin);
+        openPinPopup(ui, pin);
+    });
 
     if (Audio) {
         try {
