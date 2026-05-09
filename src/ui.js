@@ -41,6 +41,8 @@ export function createUI(voyageData) {
     const memoryText = document.getElementById('memory-text');
     const starTooltip = document.getElementById('star-tooltip');
     const journeyPanel = document.getElementById('journey-panel');
+    const aheadPanel = document.getElementById('ahead-panel');
+    const aheadEvents = document.getElementById('ahead-events');
 
     const totalYears = voyageData?.metadata?.total_years ?? 250;
     const destinationName =
@@ -101,6 +103,8 @@ export function createUI(voyageData) {
         memoryText,
         starTooltip,
         journeyPanel,
+        aheadPanel,
+        aheadEvents,
         playButton,
         settingPlaybackRate,
         _toastTimer: null,
@@ -398,6 +402,60 @@ export function updateJourneyPanel(ui, wp, Voyage) {
     }
 }
 
+// Icon glyph per event type. Keep ASCII-friendly so they render without a
+// custom icon font.
+const EVENT_ICONS = {
+    sol: '☉',
+    distance: '◐',
+    horizon: '⌬',
+    destination: '⌖',
+    flyby: '★',
+    visibility: '◉',
+    boundary: '◇',
+    milestone: '◆',
+};
+
+/**
+ * Render the next `count` upcoming events into the "What's Ahead" panel.
+ * Hides the panel entirely once nothing remains.
+ */
+export function updateAheadPanel(ui, currentYear, allEvents, count = 3) {
+    if (!ui.aheadPanel || !ui.aheadEvents) return;
+    const upcoming = (allEvents || [])
+        .filter((e) => e.year > currentYear + 0.05)
+        .slice(0, count);
+
+    if (upcoming.length === 0) {
+        ui.aheadPanel.classList.add('empty');
+        ui.aheadEvents.innerHTML = '';
+        return;
+    }
+    ui.aheadPanel.classList.remove('empty');
+
+    const html = upcoming.map((e) => {
+        const yrs = e.year - currentYear;
+        const countdown = formatCountdown(yrs);
+        const icon = EVENT_ICONS[e.type] || EVENT_ICONS.milestone;
+        const desc = e.desc ? `${escapeHtml(e.desc)} · ` : '';
+        return `
+            <div class="ahead-event ${escapeHtml(e.type)}">
+                <div class="icon">${icon}</div>
+                <div class="body">
+                    <div class="title">${escapeHtml(e.title)}</div>
+                    <div class="meta">${desc}<span class="countdown">in ${countdown}</span></div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    ui.aheadEvents.innerHTML = html;
+}
+
+function formatCountdown(years) {
+    if (years < 1) return `${(years * 12).toFixed(1)} months`;
+    if (years < 10) return `${years.toFixed(1)} yrs`;
+    return `${Math.round(years)} yrs`;
+}
+
 function solVisibilityLabel(mag) {
     if (mag < -10) return 'Brilliant — like a small sun';
     if (mag < 0)   return 'Brighter than any star';
@@ -451,19 +509,41 @@ export function showStarTooltip(ui, info, clientX, clientY) {
     const swatchColor = `rgb(${info.r}, ${info.g}, ${info.b})`;
     const lightLine = info.lightEmittedYear !== null
         ? `Light reaching you was emitted in <strong>${info.lightEmittedYearLabel}</strong>`
-        : 'Star is closer to ship than to Sol';
+        : 'Object is closer to ship than to Sol';
+    const idLine = formatStarIdLine(info);
+    const extraRows = formatStarExtraRows(info);
 
     ui.starTooltip.innerHTML = `
         <div class="name"><span class="swatch" style="background:${swatchColor};color:${swatchColor}"></span>${escapeHtml(info.name)}</div>
-        <div class="id">HIP ${info.hipId} · ${escapeHtml(info.colorDesc)}</div>
+        <div class="id">${idLine}</div>
         <div class="row"><span class="label">From ship</span><span class="value">${info.distFromShipLy.toFixed(2)} ly</span></div>
         <div class="row"><span class="label">From Sol</span><span class="value">${info.distFromSolLy.toFixed(2)} ly</span></div>
         <div class="row"><span class="label">App. mag (here)</span><span class="value">${info.magShip.toFixed(2)}</span></div>
         <div class="row"><span class="label">App. mag (Earth)</span><span class="value">${info.magEarth.toFixed(2)}</span></div>
+        ${extraRows}
         <div class="light-line">${lightLine}</div>
     `;
     positionTooltip(ui.starTooltip, clientX, clientY);
     ui.starTooltip.classList.add('visible');
+}
+
+function formatStarIdLine(info) {
+    const parts = [];
+    if (info.hipId != null) parts.push(`HIP ${info.hipId}`);
+    else if (info.category === 'dwarf') parts.push('Brown / cool dwarf');
+    else if (info.category === 'exoplanet_host') parts.push('Exoplanet host');
+    if (info.spectralType) parts.push(escapeHtml(info.spectralType));
+    parts.push(escapeHtml(info.colorDesc));
+    return parts.join(' · ');
+}
+
+function formatStarExtraRows(info) {
+    const rows = [];
+    if (info.planetCount > 0) {
+        const noun = info.planetCount === 1 ? 'planet' : 'planets';
+        rows.push(`<div class="row"><span class="label">Confirmed exo${noun}</span><span class="value">${info.planetCount}</span></div>`);
+    }
+    return rows.join('');
 }
 
 export function hideStarTooltip(ui) {
@@ -557,22 +637,31 @@ export function openStarDetail(ui, info, isCurrentDestination) {
     swatch.style.background = `rgb(${info.r}, ${info.g}, ${info.b})`;
     swatch.style.color = `rgb(${info.r}, ${info.g}, ${info.b})`;
     nameEl.textContent = info.name;
-    subEl.textContent = `HIP ${info.hipId} · ${info.colorDesc}`;
+
+    const subParts = [];
+    if (info.hipId != null) subParts.push(`HIP ${info.hipId}`);
+    else if (info.category === 'dwarf') subParts.push('Brown / cool dwarf');
+    else if (info.category === 'exoplanet_host') subParts.push('Exoplanet host');
+    if (info.spectralType) subParts.push(info.spectralType);
+    subParts.push(info.colorDesc);
+    subEl.textContent = subParts.join(' · ');
+
     if (tag) tag.hidden = !isCurrentDestination;
     if (setBtn) {
         setBtn.disabled = !!isCurrentDestination;
         setBtn.textContent = isCurrentDestination ? 'Already destination' : 'Set as destination';
     }
 
-    const lightLine = info.lightEmittedYearLabel
-        ? `Light reaching ship: emitted in ${info.lightEmittedYearLabel}`
-        : '—';
+    const planetRow = info.planetCount > 0
+        ? `<div class="info-row"><span class="label">Confirmed exoplanets</span><span>${info.planetCount}</span></div>`
+        : '';
 
     grid.innerHTML = `
         <div class="info-row"><span class="label">From ship</span><span>${info.distFromShipLy.toFixed(2)} ly</span></div>
         <div class="info-row"><span class="label">From Sol</span><span>${info.distFromSolLy.toFixed(2)} ly</span></div>
         <div class="info-row"><span class="label">Apparent magnitude (here)</span><span>${info.magShip.toFixed(2)}</span></div>
         <div class="info-row"><span class="label">Apparent magnitude (Earth)</span><span>${info.magEarth.toFixed(2)}</span></div>
+        ${planetRow}
         <div class="info-row"><span class="label">Light arrives from</span><span>${escapeHtml(info.lightEmittedYearLabel || '—')}</span></div>
     `;
 

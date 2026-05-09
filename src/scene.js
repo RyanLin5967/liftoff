@@ -110,9 +110,13 @@ export function createScene(starsData, voyageData, Voyage) {
 
         // Behind-and-above the ship. View direction toward origin is
         // ~85% along forward, ~31° below horizontal — a chase-cam composition.
-        const pos = new THREE.Vector3();
-        pos.addScaledVector(forward, -1.0);
-        pos.addScaledVector(up, 0.6);
+
+        // COULD UN COMMENT OUT
+        // const pos = new THREE.Vector3();
+        // pos.addScaledVector(forward, -1.0);
+        // pos.addScaledVector(up, 0.6);
+
+        const pos = new THREE.Vector3(0.5, 1.1, 0.5)
 
         return { pos, target };
     }

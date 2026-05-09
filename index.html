@@ -67,6 +67,71 @@
             padding: 16px 18px;
         }
 
+        #ahead-panel {
+            position: absolute;
+            top: 130px;
+            right: 20px;
+            width: 320px;
+            padding: 16px 18px;
+        }
+
+        #ahead-panel .ahead-title {
+            font-size: 10px;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+            margin-bottom: 12px;
+        }
+
+        #ahead-panel .ahead-event {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 0;
+            border-top: 1px solid rgba(140, 170, 220, 0.08);
+        }
+
+        #ahead-panel .ahead-event:first-child { border-top: none; padding-top: 0; }
+
+        #ahead-panel .ahead-event .icon {
+            flex: 0 0 22px;
+            font-size: 16px;
+            line-height: 1.2;
+            color: #cfe1ff;
+            text-align: center;
+        }
+
+        #ahead-panel .ahead-event .body { flex: 1; min-width: 0; }
+
+        #ahead-panel .ahead-event .title {
+            font-size: 13px;
+            color: #e8eef8;
+            line-height: 1.35;
+        }
+
+        #ahead-panel .ahead-event .meta {
+            margin-top: 3px;
+            font-size: 11px;
+            color: #9aa9c4;
+            line-height: 1.4;
+            font-variant-numeric: tabular-nums;
+        }
+
+        #ahead-panel .ahead-event .meta .countdown {
+            color: #ffd9a8;
+        }
+
+        /* Type-specific icon tints */
+        #ahead-panel .ahead-event.flyby .icon       { color: #ffe7b8; }
+        #ahead-panel .ahead-event.horizon .icon     { color: #ffb38a; }
+        #ahead-panel .ahead-event.destination .icon { color: #ffb38a; }
+        #ahead-panel .ahead-event.visibility .icon  { color: #cfe1ff; }
+        #ahead-panel .ahead-event.boundary .icon    { color: #b8d4ff; }
+        #ahead-panel .ahead-event.sol .icon         { color: #fff4d6; }
+        #ahead-panel .ahead-event.distance .icon    { color: #cfe1ff; }
+
+        #ahead-panel.empty { display: none; }
+
         #journey-panel .header {
             display: flex;
             justify-content: space-between;
@@ -1038,6 +1103,11 @@
             <div class="label">Sol — apparent magnitude</div>
             <div class="magnitude">—</div>
             <div class="visibility">—</div>
+        </div>
+
+        <div id="ahead-panel" class="panel">
+            <div class="ahead-title">What's Ahead</div>
+            <div id="ahead-events"></div>
         </div>
 
         <div id="journey-panel" class="panel">

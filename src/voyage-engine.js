@@ -14,6 +14,7 @@
 let starsData = null;
 let voyageData = null;
 let starMap = null; // Map<id, star> for constellation lookups
+let additionalFlybyTargets = []; // brown dwarfs + exoplanet hosts (from CSVs)
 
 export async function init() {
   const [starsRes, voyageRes] = await Promise.all([
@@ -30,7 +31,341 @@ export async function init() {
     starMap.set(s.id, { ...s, _idx: idx });
   });
 
+  // Optional supplementary catalogs. Both are fetched in parallel and degrade
+  // gracefully if missing (404, parse error, empty file, etc.).
+  const [dwarfs, exoHosts] = await Promise.all([
+    loadNearbyDwarfs("./data/recons_top100_nearest_stars.csv"),
+    loadExoplanetHosts("./data/PSCompPars_2026.05.09_15.19.33.csv"),
+  ]);
+  additionalFlybyTargets = mergeAdditionalTargets(dwarfs, exoHosts);
+
+  // Fold supplementary targets into starsData so they share the existing
+  // star rendering / hover / click pipeline. HYG matches (same physical star,
+  // within 0.05 pc) are *enriched* in place (planetCount, spectralType, ...)
+  // instead of duplicated. Non-matching targets get synthesized HYG-shape
+  // entries with negative ids (so they don't collide with HIP catalog ints).
+  let nextSyntheticId = -1;
+  for (const target of additionalFlybyTargets) {
+    const matchIdx = findNearestStarIdx(target, 0.05);
+    if (matchIdx >= 0) {
+      const existing = starsData[matchIdx];
+      if (target.type === 'exoplanet_host' && target.meta?.planetCount > 0) {
+        existing.planetCount = Math.max(existing.planetCount || 0, target.meta.planetCount);
+      }
+      if (target.type === 'dwarf' && target.meta?.spectralType && !existing.spectralType) {
+        existing.spectralType = target.meta.spectralType;
+      }
+      existing.category = existing.category || (target.type === 'dwarf' ? 'dwarf' : null);
+    } else {
+      const entry = synthesizeStarEntry(target, nextSyntheticId--);
+      starsData.push(entry);
+      starMap.set(entry.id, { ...entry, _idx: starsData.length - 1 });
+    }
+  }
+
   return { starsData, voyageData };
+}
+
+/**
+ * Locate the nearest entry in starsData within `tolPc` parsecs of `target`.
+ * Returns its index or -1. Uses axis-aligned early-exit so the brute-force
+ * scan stays fast even with 30k+ stars × thousands of additional targets.
+ */
+function findNearestStarIdx(target, tolPc) {
+  const tol = tolPc;
+  const tol2 = tol * tol;
+  let bestIdx = -1;
+  let bestD2 = tol2;
+  for (let i = 0; i < starsData.length; i++) {
+    const s = starsData[i];
+    const dx = s.x - target.x;
+    if (dx > tol || dx < -tol) continue;
+    const dy = s.y - target.y;
+    if (dy > tol || dy < -tol) continue;
+    const dz = s.z - target.z;
+    if (dz > tol || dz < -tol) continue;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+/**
+ * Build a HYG-shape entry from a supplementary target so it can live alongside
+ * regular stars in starsData. Synthesizes color and apparent magnitude based
+ * on type / spectral class.
+ */
+function synthesizeStarEntry(target, syntheticId) {
+  const sp = (target.meta?.spectralType || '').toUpperCase();
+  let r, g, b;
+  if (target.type === 'dwarf') {
+    if (sp.startsWith('Y'))      [r, g, b] = [180,  60,  60];
+    else if (sp.startsWith('T')) [r, g, b] = [220,  90,  70];
+    else if (sp.startsWith('L')) [r, g, b] = [240, 130,  70];
+    else if (sp.startsWith('M')) [r, g, b] = [255, 170, 110];
+    else if (sp.startsWith('K')) [r, g, b] = [255, 210, 160];
+    else                         [r, g, b] = [240, 160,  90];
+  } else if (target.type === 'exoplanet_host') {
+    [r, g, b] = [255, 235, 200];
+  } else {
+    [r, g, b] = [255, 255, 255];
+  }
+
+  // Derive apparent magnitude from V_mag if RECONS gave us one; otherwise
+  // estimate by type so the size formula doesn't make them invisible.
+  let mag = parseFloat(target.meta?.mag);
+  if (!Number.isFinite(mag)) {
+    mag = target.type === 'dwarf' ? 11 : target.type === 'exoplanet_host' ? 9 : 8;
+  }
+
+  return {
+    id: syntheticId,
+    x: target.x, y: target.y, z: target.z,
+    mag,
+    r, g, b,
+    name: target.name,
+    category: target.type,           // 'dwarf' | 'exoplanet_host'
+    spectralType: target.meta?.spectralType || null,
+    planetCount: target.meta?.planetCount || 0,
+    distanceLy: target.distanceLy,
+    distancePc: target.distancePc,
+  };
+}
+
+// ─── Supplementary catalog loaders ─────────────────────────────────────────
+
+/**
+ * Load RECONS-format nearby stars/brown dwarfs CSV.
+ * Expected columns include: ra_2000, dec_2000, distance_ly, common_name,
+ * cns_name, spectral_type, V_mag, mass_msun, system_rank, component.
+ */
+async function loadNearbyDwarfs(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const rows = parseCSV(await res.text());
+    const out = [];
+    const seenSystem = new Set();
+    for (const r of rows) {
+      const distLy = parseFloat(r.distance_ly);
+      const ra = parseRA(r.ra_2000);
+      const dec = parseDec(r.dec_2000);
+      if (![distLy, ra, dec].every(Number.isFinite)) continue;
+      // One entry per system (skip B/C/D components — they're sub-AU companions
+      // and would just clutter the flyby list).
+      const sysRank = (r.system_rank || r.rank || '').trim();
+      if (sysRank && seenSystem.has(sysRank)) continue;
+      if (sysRank) seenSystem.add(sysRank);
+
+      const distPc = distLy / 3.26156;
+      const xyz = sphericalToCartesian(ra, dec, distPc);
+      const name = (r.common_name || r.cns_name || '').trim() || `Object ${sysRank}`;
+      out.push({
+        name,
+        x: xyz.x, y: xyz.y, z: xyz.z,
+        distancePc: distPc,
+        distanceLy: distLy,
+        type: 'dwarf',
+        meta: {
+          spectralType: (r.spectral_type || '').trim() || null,
+          mass: parseFloat(r.mass_msun) || null,
+          mag: parseFloat(r.V_mag) || null,
+        },
+      });
+    }
+    return out;
+  } catch (e) {
+    console.warn('nearby_dwarfs.csv unavailable or unreadable', e);
+    return [];
+  }
+}
+
+/**
+ * Load NASA Exoplanet Archive CSV (default columns from a `pscomppars` query
+ * filtered to default_flag=1: hostname, ra, dec, sy_dist, sy_pnum).
+ * Dedupes by hostname, keeping the row with the largest planet count.
+ */
+async function loadExoplanetHosts(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const rows = parseCSV(await res.text());
+    const byHost = new Map();
+    for (const r of rows) {
+      const host = (r.hostname || '').trim();
+      if (!host) continue;
+      const dist = parseFloat(r.sy_dist);   // parsecs
+      const ra  = parseFloat(r.ra);          // decimal degrees
+      const dec = parseFloat(r.dec);         // decimal degrees
+      const pnum = parseInt(r.sy_pnum, 10) || 1;
+      if (![dist, ra, dec].every(Number.isFinite)) continue;
+      const prev = byHost.get(host);
+      if (!prev || prev.planetCount < pnum) {
+        byHost.set(host, { name: host, ra, dec, distancePc: dist, planetCount: pnum });
+      }
+    }
+    const out = [];
+    for (const v of byHost.values()) {
+      const xyz = sphericalToCartesian(v.ra, v.dec, v.distancePc);
+      out.push({
+        name: v.name,
+        x: xyz.x, y: xyz.y, z: xyz.z,
+        distancePc: v.distancePc,
+        distanceLy: v.distancePc * 3.26156,
+        type: 'exoplanet_host',
+        meta: { planetCount: v.planetCount },
+      });
+    }
+    return out;
+  } catch (e) {
+    console.warn('exoplanets.csv unavailable or unreadable', e);
+    return [];
+  }
+}
+
+/**
+ * Merge dwarfs + exoplanet hosts into a single list. If two entries represent
+ * the same physical star (within 0.05 pc), merge their metadata into one.
+ */
+function mergeAdditionalTargets(dwarfs, exoHosts) {
+  const merged = [...dwarfs];
+  const TOL2 = 0.05 * 0.05;
+  for (const h of exoHosts) {
+    let matchIdx = -1;
+    for (let i = 0; i < merged.length; i++) {
+      const m = merged[i];
+      const d2 = (m.x - h.x) ** 2 + (m.y - h.y) ** 2 + (m.z - h.z) ** 2;
+      if (d2 < TOL2) { matchIdx = i; break; }
+    }
+    if (matchIdx >= 0) {
+      // Same star — enrich existing entry with planet count.
+      merged[matchIdx].meta = {
+        ...(merged[matchIdx].meta || {}),
+        planetCount: h.meta.planetCount,
+      };
+    } else {
+      merged.push(h);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Returns the merged list of supplementary flyby targets (brown dwarfs +
+ * exoplanet hosts, deduped). Each entry has: name, x, y, z, distancePc,
+ * distanceLy, type ('dwarf' | 'exoplanet_host'), meta {...}.
+ *
+ * NOT yet deduped against HYG starsData — that's the caller's job, since the
+ * caller often wants to enrich a HYG star's flyby event with the exoplanet
+ * count instead of dropping the duplicate.
+ */
+export function getAdditionalFlybyTargets() {
+  return additionalFlybyTargets;
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Minimal CSV parser. Handles double-quoted fields with embedded delimiters
+ * and "" escapes. Auto-detects comma vs semicolon from the header line.
+ */
+function parseCSV(text) {
+  if (!text) return [];
+  const newline = text.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+  // Skip blank lines AND comment lines (NASA Exoplanet Archive prepends ~88
+  // lines of `# COLUMN ...` metadata before the real header).
+  const lines = text.split(newline).filter(
+    (l) => l.trim().length > 0 && !l.startsWith('#')
+  );
+  if (lines.length === 0) return [];
+  const firstLine = lines[0];
+  const delim = (firstLine.indexOf(';') >= 0 && firstLine.indexOf(',') < 0)
+    ? ';'
+    : ',';
+  const headers = parseCSVLine(firstLine, delim).map((h) => h.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = parseCSVLine(lines[i], delim);
+    const row = {};
+    for (let j = 0; j < headers.length; j++) row[headers[j]] = cells[j] ?? '';
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseCSVLine(line, delim) {
+  const cells = [];
+  let cur = '';
+  let inQuote = false;
+  let fieldStart = true; // we're at the beginning of a fresh field
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuote) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') { inQuote = false; }
+      else cur += c;
+    } else {
+      // A quote only opens a quoted field if it's the first char of the field;
+      // otherwise it's a literal " (handles malformed RECONS notes like
+      // "separation 7849" followed immediately by a comma).
+      if (c === '"' && fieldStart) inQuote = true;
+      else if (c === delim) { cells.push(cur); cur = ''; fieldStart = true; continue; }
+      else cur += c;
+      fieldStart = false;
+    }
+  }
+  cells.push(cur);
+  return cells;
+}
+
+/**
+ * Parse RA. Accepts decimal degrees (e.g. "162.328") OR sexagesimal hours
+ * separated by spaces or colons (e.g. "14:29:42.94" or "14 29 42.94").
+ */
+function parseRA(value) {
+  if (typeof value !== 'string') value = String(value ?? '');
+  const v = value.trim();
+  if (!v) return NaN;
+  // Sexagesimal if contains : or whitespace separator
+  if (/[\s:]/.test(v)) {
+    const parts = v.split(/[\s:]+/).map(parseFloat).filter((x) => !isNaN(x));
+    if (parts.length < 1) return NaN;
+    const [h, m = 0, s = 0] = parts;
+    return (h + m / 60 + s / 3600) * 15;
+  }
+  return parseFloat(v);
+}
+
+/**
+ * Parse declination. Accepts decimal degrees (e.g. "-53.32") OR sexagesimal
+ * (e.g. "-62:40:46.1" or "-62 40 46.1").
+ */
+function parseDec(value) {
+  if (typeof value !== 'string') value = String(value ?? '');
+  const v = value.trim();
+  if (!v) return NaN;
+  if (/[\s:]/.test(v)) {
+    const sign = v.startsWith('-') ? -1 : 1;
+    const stripped = v.replace(/^[+-]/, '');
+    const parts = stripped.split(/[\s:]+/).map(parseFloat).filter((x) => !isNaN(x));
+    if (parts.length < 1) return NaN;
+    const [d, m = 0, s = 0] = parts;
+    return sign * (d + m / 60 + s / 3600);
+  }
+  return parseFloat(v);
+}
+
+function sphericalToCartesian(raDeg, decDeg, distancePc) {
+  const ra = (raDeg * Math.PI) / 180;
+  const dec = (decDeg * Math.PI) / 180;
+  return {
+    x: distancePc * Math.cos(dec) * Math.cos(ra),
+    y: distancePc * Math.cos(dec) * Math.sin(ra),
+    z: distancePc * Math.sin(dec),
+  };
 }
 
 /**

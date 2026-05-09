@@ -7,6 +7,7 @@ import {
     setMuted,
     setPlaying,
     updateJourneyPanel,
+    updateAheadPanel,
     onTimelinePinClick,
     onMemorySubmit,
     addTimelinePin,
@@ -55,6 +56,171 @@ function colorDescriptor(r, g, b) {
     if (r > 230 && g > 160 && b < 150) return 'Orange';
     if (r > 200 && g < 160 && b < 130) return 'Red (cool)';
     return 'Mixed';
+}
+
+// Outer Oort Cloud — Sol's gravitational influence essentially ends ~1 pc out.
+const OORT_OUTER_PC = 1.0;
+// Stellar flyby threshold: only mention named stars whose closest approach to
+// the trajectory is within this distance. ~5 ly is "the closest you'll ever
+// be to another star system" territory.
+const FLYBY_MAX_LY = 5.0;
+// Naked-eye magnitude threshold (m=6).
+const NAKED_EYE_MAG = 6.0;
+
+/**
+ * Compute every astronomically-predictable upcoming event for the active
+ * voyage. Pure function over voyageData + starsData — call after setVoyage().
+ *
+ * Includes: existing milestones, stellar flybys for nearby named stars,
+ * destination naked-eye threshold, Sol gravitational boundary (Oort).
+ *
+ * Excludes: anything the simulated crew couldn't compute (future memory pins,
+ * generation predictions, etc.).
+ */
+function computeAllEvents(voyageData, starsData) {
+    const out = [];
+    const meta = voyageData?.metadata;
+    if (!meta) return out;
+    const totalYears = meta.total_years;
+    const distPc = meta.total_distance_pc;
+    if (!Number.isFinite(totalYears) || !Number.isFinite(distPc) || distPc <= 0) return out;
+    const speedPcYr = distPc / totalYears;
+    const dest = meta.destination;
+    if (!dest) return out;
+
+    // 1. Existing milestones — kept as-is, but enriched with descriptors.
+    for (const m of voyageData.milestones || []) {
+        out.push({
+            type: m.type || 'milestone',
+            year: m.year,
+            title: m.label || 'Milestone',
+            desc: descriptorForMilestone(m),
+        });
+    }
+
+    // 2. Outer Oort cloud / heliosphere boundary — true interstellar space.
+    const t_oort = OORT_OUTER_PC / speedPcYr;
+    if (t_oort > 1 && t_oort < totalYears - 1) {
+        out.push({
+            type: 'boundary',
+            year: t_oort,
+            title: 'Crossing the outer Oort Cloud',
+            desc: 'Last cometary debris — entering true interstellar space',
+        });
+    }
+
+    // 3. Stellar flybys.
+    //
+    // Sources combined here:
+    //   - HYG stars (Hipparcos-derived, in starsData) — covers most named stars
+    //   - Brown dwarfs / nearby cool dwarfs (data/nearby_dwarfs.csv) — fills
+    //     in the closest stars to Sol that HYG misses (Luhman 16, WISE, etc.)
+    //   - Exoplanet host stars (data/exoplanets.csv) — used to enrich any
+    //     star's flyby description with its planet count
+    //
+    // For each candidate, we compute closest-approach to the trajectory line
+    // and emit a flyby event if it's within FLYBY_MAX_LY.
+    const fx = dest.x / distPc;
+    const fy = dest.y / distPc;
+    const fz = dest.z / distPc;
+    const flybyMaxPc = FLYBY_MAX_LY / 3.26156;
+
+    // Helper: project a target onto trajectory; return { year, distLy } or null
+    // if the closest-approach is outside the journey window or too far.
+    const computeFlyby = (target) => {
+        const dot = target.x * fx + target.y * fy + target.z * fz;
+        const t = dot / speedPcYr;
+        if (t < 1 || t > totalYears - 1) return null;
+        const dx = target.x - fx * dot;
+        const dy = target.y - fy * dot;
+        const dz = target.z - fz * dot;
+        const distPerpPc = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (distPerpPc > flybyMaxPc) return null;
+        return { year: t, distLy: distPerpPc * 3.26156 };
+    };
+
+    // Stars + supplementary targets all live in starsData now; one pass.
+    for (const star of starsData) {
+        if (!star.name) continue;
+        if (star.id === dest.id) continue;
+        const fb = computeFlyby(star);
+        if (!fb) continue;
+        const entry = {
+            name: star.name,
+            year: fb.year,
+            distLy: fb.distLy,
+            type: star.category || 'star',
+            meta: {
+                spectralType: star.spectralType,
+                planetCount: star.planetCount,
+            },
+        };
+        out.push({
+            type: 'flyby',
+            year: entry.year,
+            title: titleForFlyby(entry),
+            desc: describeFlyby(entry),
+        });
+    }
+
+    // 4. Destination naked-eye visibility threshold.
+    const destStar = starsData.find((s) => s.id === dest.id);
+    if (destStar && Number.isFinite(destStar.mag)) {
+        const earthDistPc = Math.hypot(destStar.x, destStar.y, destStar.z);
+        if (earthDistPc > 0) {
+            const M = destStar.mag - 5 * Math.log10(earthDistPc / 10);
+            // Distance from ship at which destination apparent mag = NAKED_EYE_MAG.
+            const dThresholdPc = 10 * Math.pow(10, (NAKED_EYE_MAG - M) / 5);
+            // ship-to-dest distance = distPc - speedPcYr * t. Solve for t.
+            const t_naked_eye = totalYears * (1 - dThresholdPc / distPc);
+            if (t_naked_eye > 1 && t_naked_eye < totalYears - 0.5) {
+                const destName = destStar.name || meta.destination_name || 'destination';
+                out.push({
+                    type: 'visibility',
+                    year: t_naked_eye,
+                    title: `${destName} becomes naked-eye visible`,
+                    desc: 'First time seen unaided from the ship',
+                });
+            }
+        }
+    }
+
+    out.sort((a, b) => a.year - b.year);
+    return out;
+}
+
+function titleForFlyby(e) {
+    if (e.type === 'exoplanet_host' && e.meta?.planetCount > 0) {
+        return `Passing ${e.name} system`;
+    }
+    if (e.type === 'dwarf') {
+        return `Stellar flyby: ${e.name}`;
+    }
+    return `Stellar flyby: ${e.name}`;
+}
+
+function describeFlyby(e) {
+    const parts = [`${e.distLy.toFixed(2)} ly off course`];
+    const planets = e.meta?.planetCount;
+    if (Number.isFinite(planets) && planets > 0) {
+        parts.push(`${planets} confirmed exoplanet${planets === 1 ? '' : 's'}`);
+    }
+    if (e.type === 'dwarf') {
+        const sp = e.meta?.spectralType;
+        if (sp) parts.push(`${sp} dwarf`);
+        else parts.push('Brown / cool dwarf');
+    }
+    return parts.join(' · ');
+}
+
+function descriptorForMilestone(m) {
+    switch (m.type) {
+        case 'sol':         return 'Sol drops below the naked-eye threshold (mag 6+)';
+        case 'distance':    return 'Equidistant from Sol and the destination';
+        case 'horizon':     return "Earth's signal falls below the noise floor — last chance for any message from home";
+        case 'destination': return "Arrival — end of the voyage";
+        default:            return '';
+    }
 }
 
 const USER_PINS_STORAGE_KEY = 'voyage:user-pins:v1';
@@ -237,6 +403,7 @@ async function setup() {
 
     let muted = false;
     const seenMilestones = new Set();
+    let allEvents = computeAllEvents(voyageData, starsData);
 
     // Populate the destination picker from named stars (if engine supports it).
     let namedStars = [];
@@ -256,6 +423,7 @@ async function setup() {
     updateScene(scene, initialWp, Voyage);
     updateUI(ui, initialWp, Voyage);
     updateJourneyPanel(ui, initialWp, Voyage);
+    updateAheadPanel(ui, initialWp.year, allEvents);
     applyVoyageMetadata(ui, voyageData.metadata);
 
     onTimelinePinClick(ui, (pin) => openPinPopup(ui, pin));
@@ -288,10 +456,13 @@ async function setup() {
 
         return {
             id: star.id,
-            hipId: star.id,
+            hipId: star.id > 0 ? star.id : null, // synthetic ids are negative
             name: star.name || `Unnamed star`,
             r: star.r, g: star.g, b: star.b,
             colorDesc: colorDescriptor(star.r, star.g, star.b),
+            category: star.category || 'star',
+            spectralType: star.spectralType || null,
+            planetCount: star.planetCount || 0,
             distFromShipLy: distShipLy,
             distFromSolLy: distSolLy,
             magShip,
@@ -345,10 +516,14 @@ async function setup() {
         rebuildTimeline(ui, voyageData.pins, voyageData.metadata.total_years);
         seenMilestones.clear();
 
+        // Events depend on the (now-mutated) trajectory + milestones, so refresh.
+        allEvents = computeAllEvents(voyageData, starsData);
+
         const wp = Voyage.getWaypoint(parseFloat(ui.slider.value) || 0);
         updateScene(scene, wp, Voyage);
         updateUI(ui, wp, Voyage);
         updateJourneyPanel(ui, wp, Voyage);
+        updateAheadPanel(ui, wp.year, allEvents);
 
         if (typeof scene.resetView === 'function') scene.resetView();
     }
@@ -495,6 +670,7 @@ async function setup() {
         updateScene(scene, wp, Voyage);
         updateUI(ui, wp, Voyage);
         updateJourneyPanel(ui, wp, Voyage);
+        updateAheadPanel(ui, wp.year, allEvents);
 
         if (Audio && !muted) {
             Audio.update(year, Voyage.getLightHorizon().ship_year);
