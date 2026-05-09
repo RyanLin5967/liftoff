@@ -257,7 +257,8 @@
 
         #mute-button,
         #settings-button,
-        #add-memory-button {
+        #add-memory-button,
+        #reset-view-button {
             position: absolute;
             bottom: 28px;
             width: 38px;
@@ -279,10 +280,12 @@
         #mute-button { right: 28px; }
         #settings-button { right: 76px; font-size: 18px; }
         #add-memory-button { right: 124px; font-size: 22px; line-height: 1; }
+        #reset-view-button { right: 172px; font-size: 18px; }
 
         #mute-button:hover,
         #settings-button:hover,
-        #add-memory-button:hover {
+        #add-memory-button:hover,
+        #reset-view-button:hover {
             background: rgba(20, 30, 55, 0.8);
         }
 
@@ -918,6 +921,7 @@
             </div>
         </div>
 
+        <button id="reset-view-button" title="Reset view">⟳</button>
         <button id="add-memory-button" title="Add a memory entry">+</button>
         <button id="settings-button" title="Timeline settings">⚙</button>
         <button id="mute-button" title="Toggle audio">♪</button>
