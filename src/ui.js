@@ -27,6 +27,7 @@ export function createUI(voyageData) {
     const memoryTitle = document.getElementById('memory-title');
     const memoryAuthor = document.getElementById('memory-author');
     const memoryText = document.getElementById('memory-text');
+    const starTooltip = document.getElementById('star-tooltip');
 
     const totalYears = voyageData?.metadata?.total_years ?? 250;
     const destinationName =
@@ -72,6 +73,7 @@ export function createUI(voyageData) {
         memoryTitle,
         memoryAuthor,
         memoryText,
+        starTooltip,
         _toastTimer: null,
         _totalYears: totalYears,
         _memorySubmitHandler: null,
@@ -297,4 +299,48 @@ export function closePinPopup(ui) {
 export function setMuted(ui, muted) {
     ui.muteButton.textContent = muted ? '⊘' : '♪';
     ui.muteButton.title = muted ? 'Unmute' : 'Mute';
+}
+
+export function showStarTooltip(ui, info, clientX, clientY) {
+    if (!ui.starTooltip) return;
+    const swatchColor = `rgb(${info.r}, ${info.g}, ${info.b})`;
+    const lightLine = info.lightEmittedYear !== null
+        ? `Light reaching you was emitted in <strong>${info.lightEmittedYearLabel}</strong>`
+        : 'Star is closer to ship than to Sol';
+
+    ui.starTooltip.innerHTML = `
+        <div class="name"><span class="swatch" style="background:${swatchColor};color:${swatchColor}"></span>${escapeHtml(info.name)}</div>
+        <div class="id">HIP ${info.hipId} · ${escapeHtml(info.colorDesc)}</div>
+        <div class="row"><span class="label">From ship</span><span class="value">${info.distFromShipLy.toFixed(2)} ly</span></div>
+        <div class="row"><span class="label">From Sol</span><span class="value">${info.distFromSolLy.toFixed(2)} ly</span></div>
+        <div class="row"><span class="label">App. mag (here)</span><span class="value">${info.magShip.toFixed(2)}</span></div>
+        <div class="row"><span class="label">App. mag (Earth)</span><span class="value">${info.magEarth.toFixed(2)}</span></div>
+        <div class="light-line">${lightLine}</div>
+    `;
+    positionTooltip(ui.starTooltip, clientX, clientY);
+    ui.starTooltip.classList.add('visible');
+}
+
+export function hideStarTooltip(ui) {
+    if (!ui.starTooltip) return;
+    ui.starTooltip.classList.remove('visible');
+}
+
+function positionTooltip(el, clientX, clientY) {
+    // Place tooltip near cursor, flipping to keep it on screen.
+    const padding = 14;
+    const rect = el.getBoundingClientRect();
+    const w = rect.width || 220;
+    const h = rect.height || 140;
+    let x = clientX + padding;
+    let y = clientY + padding;
+    if (x + w > window.innerWidth - 8) x = clientX - w - padding;
+    if (y + h > window.innerHeight - 8) y = clientY - h - padding;
+    el.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
 }

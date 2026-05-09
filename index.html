@@ -589,6 +589,79 @@
             white-space: pre-wrap;
         }
 
+        #star-tooltip {
+            position: absolute;
+            top: 0;
+            left: 0;
+            min-width: 200px;
+            max-width: 280px;
+            padding: 10px 12px;
+            background: rgba(4, 8, 18, 0.92);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(180, 210, 255, 0.25);
+            border-radius: 4px;
+            color: #e8eef8;
+            font-size: 12px;
+            line-height: 1.5;
+            pointer-events: none;
+            opacity: 0;
+            transform: translate(12px, 12px);
+            transition: opacity 0.1s ease;
+            z-index: 4;
+            font-variant-numeric: tabular-nums;
+        }
+
+        #star-tooltip.visible { opacity: 1; }
+
+        #star-tooltip .name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #fff;
+            margin-bottom: 2px;
+        }
+
+        #star-tooltip .name .swatch {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 6px;
+            vertical-align: middle;
+            box-shadow: 0 0 6px currentColor;
+        }
+
+        #star-tooltip .id {
+            font-size: 10px;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+            margin-bottom: 8px;
+        }
+
+        #star-tooltip .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            color: #c6d2e6;
+        }
+
+        #star-tooltip .row .label {
+            color: #7a8aa8;
+        }
+
+        #star-tooltip .row .value {
+            color: #e8eef8;
+        }
+
+        #star-tooltip .light-line {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(140, 170, 220, 0.15);
+            color: #cfe1ff;
+            font-style: italic;
+        }
+
         #milestone-toast {
             position: absolute;
             top: 50%;
@@ -741,6 +814,8 @@
         </aside>
 
         <div id="milestone-toast"></div>
+
+        <div id="star-tooltip"></div>
     </div>
 
     <script type="module" src="./src/main.js"></script>

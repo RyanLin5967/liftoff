@@ -8,7 +8,21 @@ import {
     onTimelinePinClick,
     onMemorySubmit,
     addTimelinePin,
+    showStarTooltip,
+    hideStarTooltip,
 } from './ui.js';
+
+const PARSEC_TO_LY = 3.26156;
+const EARTH_DEPARTURE_YEAR = 2750;
+
+function colorDescriptor(r, g, b) {
+    if (b > r + 25 && b > g) return 'Blue-white (hot)';
+    if (b > 220 && r > 220 && g > 220) return 'White';
+    if (r > 230 && g > 200 && b > 150) return 'Yellow';
+    if (r > 230 && g > 160 && b < 150) return 'Orange';
+    if (r > 200 && g < 160 && b < 130) return 'Red (cool)';
+    return 'Mixed';
+}
 
 const USER_PINS_STORAGE_KEY = 'voyage:user-pins:v1';
 
@@ -196,6 +210,62 @@ async function setup() {
     updateUI(ui, initialWp, Voyage);
 
     onTimelinePinClick(ui, (pin) => openPinPopup(ui, pin));
+
+    if (typeof scene.onStarHover === 'function') {
+        scene.onStarHover((idx, clientX, clientY) => {
+            if (idx == null) {
+                hideStarTooltip(ui);
+                return;
+            }
+            const star = starsData[idx];
+            if (!star) {
+                hideStarTooltip(ui);
+                return;
+            }
+            const wp = Voyage.getWaypoint(parseFloat(ui.slider.value) || 0);
+            const dx = star.x - wp.x;
+            const dy = star.y - wp.y;
+            const dz = star.z - wp.z;
+            const distShipPc = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const distSolPc = Math.sqrt(star.x * star.x + star.y * star.y + star.z * star.z);
+            const distShipLy = distShipPc * PARSEC_TO_LY;
+            const distSolLy = distSolPc * PARSEC_TO_LY;
+
+            // Apparent magnitude from current ship position.
+            // Derive absolute magnitude from the Earth-based mag, then re-apply
+            // the distance-modulus formula at our distance.
+            let magShip = star.mag;
+            if (distSolPc > 0 && distShipPc > 0) {
+                const absMag = star.mag - 5 * Math.log10(distSolPc / 10);
+                magShip = absMag + 5 * Math.log10(distShipPc / 10);
+            }
+
+            // Calendar year light reaching the ship was emitted.
+            // Light travels at 1 ly/yr; we are at calendar year (2750 + ship_year).
+            let lightEmittedYear = null;
+            let lightEmittedYearLabel = null;
+            if (Number.isFinite(distShipLy)) {
+                const calendarNow = EARTH_DEPARTURE_YEAR + wp.year;
+                lightEmittedYear = calendarNow - distShipLy;
+                lightEmittedYearLabel = lightEmittedYear < 0
+                    ? `${Math.abs(lightEmittedYear).toFixed(0)} BCE`
+                    : `${Math.round(lightEmittedYear)} CE`;
+            }
+
+            showStarTooltip(ui, {
+                name: star.name || `Unnamed star`,
+                hipId: star.id,
+                r: star.r, g: star.g, b: star.b,
+                colorDesc: colorDescriptor(star.r, star.g, star.b),
+                distFromShipLy: distShipLy,
+                distFromSolLy: distSolLy,
+                magShip,
+                magEarth: star.mag,
+                lightEmittedYear,
+                lightEmittedYearLabel,
+            }, clientX, clientY);
+        });
+    }
 
     onMemorySubmit(ui, (entry) => {
         const pin = {

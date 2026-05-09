@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // === Ship model — swap this path to use a different GLB ===
 // Path is relative to index.html (the page root).
-const SHIP_MODEL_PATH = './Meshy_AI_Interstellar_Travel_U_0509183357_texture.glb';
+const SHIP_MODEL_PATH = './spaceship.glb';
 // Tweak these if the model appears the wrong size or facing the wrong way.
 const SHIP_SCALE = 0.12;
 const SHIP_MODEL_EULER = new THREE.Euler(0, Math.PI, 0); // 180° yaw so the nose faces forward
@@ -100,6 +100,36 @@ export function createScene(starsData, voyageData, Voyage) {
     );
     composer.addPass(bloom);
 
+    // Star hover: screen-space picking against star geometry positions.
+    // Geometry is already in ship-relative coords, so projecting through the
+    // camera gives us NDC directly.
+    const hoverState = {
+        mouseNDC: new THREE.Vector2(NaN, NaN),
+        clientX: 0,
+        clientY: 0,
+        dirty: false,
+        lastIdx: -1,
+        handler: null,
+    };
+
+    renderer.domElement.addEventListener('mousemove', (e) => {
+        const rect = renderer.domElement.getBoundingClientRect();
+        hoverState.mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        hoverState.mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        hoverState.clientX = e.clientX;
+        hoverState.clientY = e.clientY;
+        hoverState.dirty = true;
+    });
+
+    renderer.domElement.addEventListener('mouseleave', () => {
+        hoverState.mouseNDC.x = NaN;
+        hoverState.mouseNDC.y = NaN;
+        hoverState.dirty = true;
+    });
+
+    // Re-pick whenever the camera moves (orbit drag, damping, zoom).
+    controls.addEventListener('change', () => { hoverState.dirty = true; });
+
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
@@ -108,12 +138,56 @@ export function createScene(starsData, voyageData, Voyage) {
         bloom.setSize(window.innerWidth, window.innerHeight);
     });
 
+    const _pickVec = new THREE.Vector3();
+    function pickStar() {
+        if (!Number.isFinite(hoverState.mouseNDC.x)) return -1;
+        const positions = stars.geometry.attributes.position.array;
+        const sizes = stars.geometry.attributes.size.array;
+        const count = positions.length / 3;
+        const aspect = camera.aspect || 1;
+        // ~14px on a 1080p screen; expand slightly for big bright stars
+        const baseThreshold = 0.018;
+        let bestIdx = -1;
+        let bestDist2 = baseThreshold * baseThreshold;
+        for (let i = 0; i < count; i++) {
+            _pickVec.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+            _pickVec.project(camera);
+            if (_pickVec.z < -1 || _pickVec.z > 1) continue;
+            const dx = (_pickVec.x - hoverState.mouseNDC.x) * aspect;
+            const dy = _pickVec.y - hoverState.mouseNDC.y;
+            const sizeBoost = (sizes[i] || 1) * 0.0008;
+            const tol = baseThreshold + sizeBoost;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < tol * tol && d2 < bestDist2) {
+                bestDist2 = d2;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }
+
     function animate() {
         requestAnimationFrame(animate);
         controls.update();
+
+        if (hoverState.dirty && hoverState.handler) {
+            hoverState.dirty = false;
+            const idx = pickStar();
+            hoverState.lastIdx = idx;
+            hoverState.handler(
+                idx >= 0 ? idx : null,
+                hoverState.clientX,
+                hoverState.clientY
+            );
+        }
+
         composer.render();
     }
     animate();
+
+    function onStarHover(handler) {
+        hoverState.handler = handler;
+    }
 
     return {
         scene, camera, renderer, controls, composer,
@@ -124,6 +198,7 @@ export function createScene(starsData, voyageData, Voyage) {
         constellations,
         lightHorizon,
         voyageData,
+        onStarHover,
     };
 }
 
