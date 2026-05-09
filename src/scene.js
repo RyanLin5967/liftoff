@@ -13,21 +13,47 @@ const SHIP_SCALE = 0.12;
 const SHIP_MODEL_EULER = new THREE.Euler(0, Math.PI, 0); // 180° yaw so the nose faces forward
 // ===========================================================
 
+// Stars are rendered as instanced billboard quads (NOT THREE.Points), because
+// gl_PointSize is hardware-clamped (typically 64 px), which makes stars stop
+// growing as you zoom in. Quads have no such limit — they scale all the way.
 const STAR_VERTEX = `
-    attribute float size;
+    attribute vec3 instancePosition;
+    attribute vec3 instanceColor;
+    attribute float instanceSize;
+    uniform float uScreenHeight;
     varying vec3 vColor;
+    varying vec2 vUv;
+
     void main() {
-        vColor = color;
-        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * (200.0 / -mvPosition.z);
-        gl_Position = projectionMatrix * mvPosition;
+        vColor = instanceColor;
+        vUv = uv;
+
+        // View-space position of the quad center (the star).
+        vec4 mvCenter = modelViewMatrix * vec4(instancePosition, 1.0);
+        float depth = max(0.001, -mvCenter.z);
+
+        // Desired apparent size in screen pixels (matches the old
+        // gl_PointSize = size * 200/depth formula at moderate distances, but
+        // is no longer capped, so close stars keep growing).
+        float pixelSize = instanceSize * (200.0 / depth);
+
+        // Convert pixel size to a view-space xy offset, using the projection
+        // matrix's vertical-FoV term and the current screen height.
+        float viewPerPixel = depth / (projectionMatrix[1][1] * uScreenHeight * 0.5);
+        float worldOffset = pixelSize * viewPerPixel;
+
+        // Offset the quad vertex in view-space xy. position is in [-0.5, 0.5]
+        // (PlaneGeometry default), so the quad always faces the camera.
+        mvCenter.xy += position.xy * worldOffset;
+        gl_Position = projectionMatrix * mvCenter;
     }
 `;
 
 const STAR_FRAGMENT = `
     varying vec3 vColor;
+    varying vec2 vUv;
     void main() {
-        float d = length(gl_PointCoord - vec2(0.5));
+        float d = length(vUv - vec2(0.5));
         if (d > 0.5) discard;
         float alpha = 1.0 - smoothstep(0.0, 0.5, d);
         gl_FragColor = vec4(vColor, alpha);
@@ -48,7 +74,39 @@ export function createScene(starsData, voyageData, Voyage) {
         0.001,
         2000
     );
-    camera.position.set(0.6, 0.4, 1.2);
+
+    // Derive a "standard" view from the trajectory direction so the same
+    // composition works for any destination: camera above-and-behind the ship,
+    // tilted forward along the trajectory line. Target stays at the ship
+    // (origin) so OrbitControls dragging orbits around the ship.
+    function computeStandardView() {
+        const meta = voyageData?.metadata;
+        const dest = meta?.destination ?? meta?.proxima;
+        const target = new THREE.Vector3(0, 0, 0);
+        if (!dest || !(dest.x || dest.y || dest.z)) {
+            return { pos: new THREE.Vector3(0.9, 0.7, 0.9), target };
+        }
+        // Build a trajectory-aligned frame.
+        const forward = new THREE.Vector3(dest.x, dest.y, dest.z).normalize();
+        const worldUp = new THREE.Vector3(0, 1, 0);
+        let right = new THREE.Vector3().crossVectors(forward, worldUp);
+        if (right.lengthSq() < 1e-6) right.set(1, 0, 0); // forward parallel to up
+        right.normalize();
+        const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+        // Behind-and-above the ship. View direction toward origin is
+        // ~85% along forward, ~31° below horizontal — a chase-cam composition.
+        const pos = new THREE.Vector3();
+        pos.addScaledVector(forward, -1.0);
+        pos.addScaledVector(up, 0.6);
+
+        return { pos, target };
+    }
+
+    {
+        const initialView = computeStandardView();
+        camera.position.copy(initialView.pos);
+    }
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -58,11 +116,24 @@ export function createScene(starsData, voyageData, Voyage) {
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
-    controls.rotateSpeed = 0.4;
-    controls.zoomSpeed = 0.6;
+    controls.dampingFactor = 0.12;          // snappier stop, less drift
+    controls.rotateSpeed = 0.7;             // faster orbit drag
+    controls.zoomSpeed = 1.1;               // quicker scroll zoom
+    controls.panSpeed = 0.9;
+    controls.screenSpacePanning = true;     // pan in screen space (intuitive)
+    controls.enablePan = true;
     controls.minDistance = 0.1;
     controls.maxDistance = 80;
+    // Keep the camera from flipping past the poles (causes disorienting snaps).
+    controls.minPolarAngle = 0.05;
+    controls.maxPolarAngle = Math.PI - 0.05;
+
+    // Initial orbit target is whatever computeStandardView gave us (always the
+    // ship at origin while we read it from there).
+    {
+        const initialView = computeStandardView();
+        controls.target.copy(initialView.target);
+    }
 
     const stars = createStarField(starsData, Voyage);
     scene.add(stars.points);
@@ -161,13 +232,14 @@ export function createScene(starsData, voyageData, Voyage) {
         renderer.setSize(window.innerWidth, window.innerHeight);
         composer.setSize(window.innerWidth, window.innerHeight);
         bloom.setSize(window.innerWidth, window.innerHeight);
+        stars.material.uniforms.uScreenHeight.value = window.innerHeight;
     });
 
     const _pickVec = new THREE.Vector3();
     function pickStar() {
         if (!Number.isFinite(hoverState.mouseNDC.x)) return -1;
-        const positions = stars.geometry.attributes.position.array;
-        const sizes = stars.geometry.attributes.size.array;
+        const positions = stars.geometry.attributes.instancePosition.array;
+        const sizes = stars.geometry.attributes.instanceSize.array;
         const count = positions.length / 3;
         const aspect = camera.aspect || 1;
         // ~14px on a 1080p screen; expand slightly for big bright stars
@@ -222,6 +294,14 @@ export function createScene(starsData, voyageData, Voyage) {
     }
     fitControlsToTrip(voyageData.metadata?.total_distance_pc || 1.3);
 
+    function resetView() {
+        const v = computeStandardView();
+        camera.position.copy(v.pos);
+        controls.target.copy(v.target);
+        controls.update();
+        hoverState.dirty = true;
+    }
+
     return {
         scene, camera, renderer, controls, composer,
         starGeometry: stars.geometry,
@@ -234,6 +314,7 @@ export function createScene(starsData, voyageData, Voyage) {
         onStarHover,
         onStarClick,
         fitControlsToTrip,
+        resetView,
     };
 }
 
@@ -274,23 +355,42 @@ function createStarField(starsData, Voyage) {
     const colors = Voyage.getStarColors();
     const sizes = Voyage.getStarSizes();
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions.slice(), 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    // Base geometry: a unit quad. PlaneGeometry vertices range [-0.5, 0.5].
+    const baseGeometry = new THREE.PlaneGeometry(1, 1);
+    const geometry = new THREE.InstancedBufferGeometry();
+    geometry.index = baseGeometry.index;
+    geometry.attributes.position = baseGeometry.attributes.position;
+    geometry.attributes.uv = baseGeometry.attributes.uv;
+
+    geometry.setAttribute(
+        'instancePosition',
+        new THREE.InstancedBufferAttribute(new Float32Array(positions), 3)
+    );
+    geometry.setAttribute(
+        'instanceColor',
+        new THREE.InstancedBufferAttribute(colors, 3)
+    );
+    geometry.setAttribute(
+        'instanceSize',
+        new THREE.InstancedBufferAttribute(sizes, 1)
+    );
+    geometry.instanceCount = count;
 
     const material = new THREE.ShaderMaterial({
+        uniforms: {
+            uScreenHeight: { value: window.innerHeight },
+        },
         vertexShader: STAR_VERTEX,
         fragmentShader: STAR_FRAGMENT,
         transparent: true,
-        vertexColors: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
     });
 
-    const points = new THREE.Points(geometry, material);
-    points.frustumCulled = false;
-    return { points, geometry, material };
+    // Mesh, not Points — instanced billboard quads.
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = false;
+    return { points: mesh, geometry, material };
 }
 
 function createTrajectoryLine(voyageData) {
@@ -371,10 +471,10 @@ function createLightHorizonSphere() {
 }
 
 export function updateScene(state, wp, Voyage) {
-    // Update star positions relative to ship
+    // Update star positions relative to ship — these are per-instance now.
     const newPositions = Voyage.getStarPositions(wp.x, wp.y, wp.z);
-    state.starGeometry.attributes.position.array.set(newPositions);
-    state.starGeometry.attributes.position.needsUpdate = true;
+    state.starGeometry.attributes.instancePosition.array.set(newPositions);
+    state.starGeometry.attributes.instancePosition.needsUpdate = true;
 
     // Move trajectory so ship sits at origin
     state.trajectory.future.position.set(-wp.x, -wp.y, -wp.z);

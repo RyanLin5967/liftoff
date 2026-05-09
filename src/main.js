@@ -345,6 +345,13 @@ async function setup() {
         const wp = Voyage.getWaypoint(parseFloat(ui.slider.value) || 0);
         updateScene(scene, wp, Voyage);
         updateUI(ui, wp, Voyage);
+
+        if (typeof scene.resetView === 'function') scene.resetView();
+    }
+
+    const resetViewButton = document.getElementById('reset-view-button');
+    if (resetViewButton && typeof scene.resetView === 'function') {
+        resetViewButton.addEventListener('click', () => scene.resetView());
     }
 
     onSetupSubmit(ui, (config) => {
