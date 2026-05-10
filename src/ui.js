@@ -44,7 +44,6 @@ export function createUI(voyageData) {
     const aheadPanel = document.getElementById('ahead-panel');
     const aheadEvents = document.getElementById('ahead-events');
 
-    setRealTime.addEventListener("click", () => settingPlaybackRate.value = "0.00000003171") // 0.00000003171
     const totalYears = voyageData?.metadata?.total_years ?? 250;
     const destinationName =
         voyageData?.metadata?.destination_name ??

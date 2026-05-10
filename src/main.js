@@ -22,6 +22,7 @@ import {
     onSpeedChange,
 } from './ui.js';
 
+// MAKE IT SO ONCE THE USER CLICKS THE START REAL TIME BUTTON IT'LL MAKE IT SO THEY CAN'T MODIFY ANYTHING TIME RELATED
 const PARSEC_TO_LY = 3.26156;
 const EARTH_DEPARTURE_YEAR = 2750;
 const VOYAGE_CONFIG_STORAGE_KEY = 'voyage:config:v1';
@@ -400,6 +401,8 @@ async function setup() {
     const scene = createScene(starsData, voyageData, Voyage);
     const ui = createUI(voyageData);
 
+    
+
     let muted = false;
     const seenMilestones = new Set();
     let allEvents = computeAllEvents(voyageData, starsData);
@@ -585,6 +588,15 @@ async function setup() {
     if (ui.playButton) {
         ui.playButton.addEventListener('click', () => setIsPlaying(!isPlaying));
     }
+
+    // if toggled, change text and make the time buttons/other stuff disabled
+    // for some reason, it will go if i'm on a different window
+    let isRealtime = false;
+    ui.setRealTime.addEventListener("click", () => {
+        ui.settingPlaybackRate.value = "0.00000003171";
+        isRealtime = !isRealtime;
+        setIsPlaying(isRealtime)
+    })
 
     // Manual scrub auto-pauses playback (so user input wins).
     ui.slider.addEventListener('pointerdown', () => {
