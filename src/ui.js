@@ -258,7 +258,7 @@ export function addTimelinePin(ui, pin) {
     const el = document.createElement('button');
     el.type = 'button';
     el.className = 'timeline-pin' + (pin._userAdded ? ' user-pin' : '');
-    el.style.left = `${(pin.year / totalYears) * 100}%`;
+    el.style.left = pinLeftCSS(pin.year, totalYears);
     el.setAttribute('aria-label', `Year ${pin.year} — ${pin.title}`);
 
     const label = document.createElement('span');
@@ -277,6 +277,8 @@ export function addTimelinePin(ui, pin) {
             ui._pinClickHandler(pin);
         });
     }
+    // Re-stack everything since this new pin may collide with siblings.
+    layoutPinRows(ui.pinElements, ui._totalYears, ui.timelinePins);
     return entry;
 }
 
@@ -285,13 +287,25 @@ function clampNumber(value, min, max, fallback) {
     return Math.min(Math.max(value, min), max);
 }
 
+// Slider thumb is 16px wide; its center sweeps from `thumb_width/2` to
+// `(track_width - thumb_width/2)` rather than the full 0–100%. This helper
+// returns a `left:` value that places the pin's center exactly under where
+// the thumb's center would be at that year — pins line up with the thumb.
+const SLIDER_THUMB_WIDTH = 16;
+function pinLeftCSS(year, totalYears) {
+    const t = Math.max(0, Math.min(1, year / totalYears));
+    const pct = t * 100;
+    const px = (SLIDER_THUMB_WIDTH / 2) - SLIDER_THUMB_WIDTH * t;
+    return `calc(${pct.toFixed(4)}% + ${px.toFixed(2)}px)`;
+}
+
 function renderTimelinePins(container, pins, totalYears) {
     container.innerHTML = '';
-    return pins.map((pin) => {
+    const entries = pins.map((pin) => {
         const el = document.createElement('button');
         el.type = 'button';
         el.className = 'timeline-pin' + (pin._userAdded ? ' user-pin' : '');
-        el.style.left = `${(pin.year / totalYears) * 100}%`;
+        el.style.left = pinLeftCSS(pin.year, totalYears);
         el.setAttribute('aria-label', `Year ${pin.year} — ${pin.title}`);
 
         const label = document.createElement('span');
@@ -302,6 +316,49 @@ function renderTimelinePins(container, pins, totalYears) {
         container.appendChild(el);
         return { el, data: pin };
     });
+    layoutPinRows(entries, totalYears, container);
+    return entries;
+}
+
+/**
+ * Vertical stacking with collision detection. Pins whose horizontal positions
+ * are closer than COLLIDE_PCT of the timeline width get bumped down a row,
+ * scanning rows in order until they find one with no collision. The timeline
+ * container grows downward to accommodate the tallest stack — looks like a
+ * histogram when many memories cluster around the same year.
+ */
+function layoutPinRows(entries, totalYears, container) {
+    if (!entries || entries.length === 0 || !totalYears || totalYears <= 0) {
+        if (container) container.parentElement.style.height = '36px';
+        return;
+    }
+    const ROW_HEIGHT = 13;     // px between stacked rows (pin diameter ≈ 10)
+    const TOP_OFFSET = 24;     // px below slider track to row 0
+    const COLLIDE_PCT = 1.5;   // pins within this % of each other share a column
+
+    // Sort entries by year so collision testing is left-to-right deterministic.
+    const sorted = [...entries].sort((a, b) => a.data.year - b.data.year);
+    const rows = [];
+
+    for (const { el, data } of sorted) {
+        const pct = (data.year / totalYears) * 100;
+        let row = 0;
+        while (true) {
+            if (!rows[row]) rows[row] = [];
+            const collides = rows[row].some((p) => Math.abs(p - pct) < COLLIDE_PCT);
+            if (!collides) {
+                rows[row].push(pct);
+                break;
+            }
+            row++;
+        }
+        el.style.top = `${TOP_OFFSET + row * ROW_HEIGHT}px`;
+    }
+
+    if (container && container.parentElement) {
+        const desired = Math.max(36, TOP_OFFSET + rows.length * ROW_HEIGHT + 6);
+        container.parentElement.style.height = `${desired}px`;
+    }
 }
 
 export function onTimelinePinClick(ui, handler) {

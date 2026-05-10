@@ -392,9 +392,13 @@ async function setup() {
     const { starsData, voyageData } = await Voyage.init();
 
     // Canonical = the seed pins shipped in voyage.json (Captain Vasquez, etc.)
-    // — stable across destination changes. User-added pins (whether shared via
-    // Firestore or stored locally) are merged on top in `rebuildPinsFromSources`.
-    const canonicalPins = (voyageData.pins || []).map((p) => ({ ...p }));
+    // — stable across destination changes. We cap them to year ≤ 15 so the
+    // seed narrative covers only the immediate launch window, leaving the rest
+    // of the timeline open for user-authored memories.
+    const CANONICAL_PIN_YEAR_LIMIT = 15;
+    const canonicalPins = (voyageData.pins || [])
+        .filter((p) => typeof p.year !== 'number' || p.year <= CANONICAL_PIN_YEAR_LIMIT)
+        .map((p) => ({ ...p }));
     let firestorePins = [];
     let firestoreUnsubscribe = null;
 
