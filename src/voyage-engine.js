@@ -565,7 +565,7 @@ export function getTrajectoryPositions(shipX, shipY, shipZ) {
 
 const PARSEC_TO_LY = 3.26156;
 const SOL_ABS_MAG = 4.83;
-const DEFAULT_DEPARTURE_YEAR = 2750;
+const DEFAULT_DEPARTURE_YEAR = 3000;
 const SIGNAL_HORIZON_LY = 3.5;
 const TOTAL_WAYPOINTS = 1000;
 

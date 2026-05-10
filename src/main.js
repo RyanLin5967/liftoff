@@ -25,7 +25,7 @@ import {
 
 // MAKE IT SO ONCE THE USER CLICKS THE START REAL TIME BUTTON IT'LL MAKE IT SO THEY CAN'T MODIFY ANYTHING TIME RELATED
 const PARSEC_TO_LY = 3.26156;
-const EARTH_DEPARTURE_YEAR = 2750;
+const EARTH_DEPARTURE_YEAR = 3000;
 const VOYAGE_CONFIG_STORAGE_KEY = 'voyage:config:v1';
 
 function loadVoyageConfig() {
@@ -304,7 +304,7 @@ function buildPlaceholderEngine() {
             x: proxima.x * t,
             y: proxima.y * t,
             z: proxima.z * t,
-            earth_light_year: 2750 + t * totalYears,
+            earth_light_year: EARTH_DEPARTURE_YEAR + t * totalYears,
             sol_mag: -26.74 + t * 30,
         });
     }
