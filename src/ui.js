@@ -40,7 +40,6 @@ export function createUI(voyageData) {
     const memoryAuthor = document.getElementById('memory-author');
     const memoryText = document.getElementById('memory-text');
     const starTooltip = document.getElementById('star-tooltip');
-    const journeyPanel = document.getElementById('journey-panel');
     const aheadPanel = document.getElementById('ahead-panel');
     const aheadEvents = document.getElementById('ahead-events');
 
@@ -102,7 +101,6 @@ export function createUI(voyageData) {
         memoryAuthor,
         memoryText,
         starTooltip,
-        journeyPanel,
         aheadPanel,
         aheadEvents,
         playButton,
@@ -305,7 +303,14 @@ export function onTimelinePinClick(ui, handler) {
 }
 
 export function updateUI(ui, wp, Voyage) {
-    ui.yearDisplay.innerHTML = `<span class="current">${wp.year.toFixed(1)}</span>of ${Math.round(ui._totalYears)} years`;
+    const totalYears = ui._totalYears;
+    const remaining = totalYears - wp.year;
+    const arrivalText = remaining < 0.05
+        ? 'Arrived'
+        : `${remaining.toFixed(1)} yrs to arrival`;
+    ui.yearDisplay.innerHTML =
+        `<span class="current">${wp.year.toFixed(1)}</span>of ${Math.round(totalYears)} years` +
+        ` <span class="arrival-inline">· ${arrivalText}</span>`;
 
     const past = Voyage.isPastLightHorizon(wp.year);
     const horizon = Voyage.getLightHorizon();
@@ -331,73 +336,6 @@ export function updateUI(ui, wp, Voyage) {
     if (ui.pinElements) {
         for (const { el, data } of ui.pinElements) {
             el.classList.toggle('active', Math.abs(data.year - wp.year) < 2);
-        }
-    }
-}
-
-export function updateJourneyPanel(ui, wp, Voyage) {
-    if (!ui.journeyPanel) return;
-    const meta = (typeof Voyage.getMetadata === 'function')
-        ? (Voyage.getMetadata() || {})
-        : {};
-    const totalYears = meta.total_years ?? ui._totalYears ?? 250;
-    const distLy = meta.total_distance_ly
-        ?? (meta.total_distance_pc != null ? meta.total_distance_pc * 3.26156 : 4.244);
-    const speedLyYr = meta.ship_speed_ly_per_year ?? (distLy / totalYears);
-    const destName = meta.destination_name
-        ?? meta.destination?.name
-        ?? 'Destination';
-    const horizon = (typeof Voyage.getLightHorizon === 'function')
-        ? Voyage.getLightHorizon()
-        : null;
-
-    // Distances along the trajectory. These are facts the ship's nav computer
-    // would know — distance from Sol and remaining distance to destination.
-    const fromEarthLy = Math.min(distLy, wp.year * speedLyYr);
-    const toDestLy = Math.max(0, distLy - fromEarthLy);
-
-    const setText = (id, t) => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = t;
-    };
-
-    setText(
-        'journey-arrival',
-        wp.year >= totalYears - 0.05
-            ? 'Arrived'
-            : `${(totalYears - wp.year).toFixed(1)} yrs to arrival`
-    );
-    setText('journey-from-earth', `${fromEarthLy.toFixed(2)} ly`);
-    setText('journey-to-dest', `${toDestLy.toFixed(2)} ly`);
-    setText('journey-dest-name', destName);
-
-    // Progress bar fill + horizon tick
-    const fillEl = document.getElementById('journey-fill');
-    if (fillEl) {
-        const pct = Math.max(0, Math.min(1, wp.year / totalYears)) * 100;
-        fillEl.style.width = `${pct}%`;
-    }
-    const horizonMark = document.getElementById('journey-horizon-mark');
-    if (horizonMark && horizon && Number.isFinite(horizon.ship_year)) {
-        const pct = Math.max(0, Math.min(1, horizon.ship_year / totalYears)) * 100;
-        horizonMark.style.left = `${pct}%`;
-    }
-
-    // Light horizon countdown / status
-    const horizonRow = document.getElementById('journey-horizon-row');
-    const horizonVal = document.getElementById('journey-horizon-val');
-    if (horizonRow && horizonVal && horizon) {
-        const delta = horizon.ship_year - wp.year;
-        horizonRow.classList.remove('crossed', 'imminent');
-        if (Math.abs(delta) < 0.5) {
-            horizonVal.textContent = 'Crossing now';
-            horizonRow.classList.add('imminent');
-        } else if (delta > 0) {
-            horizonVal.textContent = `in ${delta.toFixed(1)} yrs`;
-            if (delta < 10) horizonRow.classList.add('imminent');
-        } else {
-            horizonVal.textContent = `${Math.abs(delta).toFixed(1)} yrs ago — Earth's gone`;
-            horizonRow.classList.add('crossed');
         }
     }
 }

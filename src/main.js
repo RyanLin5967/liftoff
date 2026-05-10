@@ -6,7 +6,6 @@ import {
     openPinPopup,
     setMuted,
     setPlaying,
-    updateJourneyPanel,
     updateAheadPanel,
     onTimelinePinClick,
     onMemorySubmit,
@@ -422,7 +421,6 @@ async function setup() {
     const initialWp = Voyage.getWaypoint(0);
     updateScene(scene, initialWp, Voyage);
     updateUI(ui, initialWp, Voyage);
-    updateJourneyPanel(ui, initialWp, Voyage);
     updateAheadPanel(ui, initialWp.year, allEvents);
     applyVoyageMetadata(ui, voyageData.metadata);
 
@@ -522,7 +520,6 @@ async function setup() {
         const wp = Voyage.getWaypoint(parseFloat(ui.slider.value) || 0);
         updateScene(scene, wp, Voyage);
         updateUI(ui, wp, Voyage);
-        updateJourneyPanel(ui, wp, Voyage);
         updateAheadPanel(ui, wp.year, allEvents);
 
         if (typeof scene.resetView === 'function') scene.resetView();
@@ -669,7 +666,6 @@ async function setup() {
 
         updateScene(scene, wp, Voyage);
         updateUI(ui, wp, Voyage);
-        updateJourneyPanel(ui, wp, Voyage);
         updateAheadPanel(ui, wp.year, allEvents);
 
         if (Audio && !muted) {

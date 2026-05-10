@@ -624,19 +624,18 @@ export function updateScene(state, wp, Voyage) {
 
     // Earth is anchored one EARTH_RADIUS BEHIND trajectory[0] along the launch
     // direction, so at year 0 the ship's origin lies exactly on Earth's surface
-    // (no more spawning inside the planet). Cache the launch dir once.
+    // (the trajectory line starts tangent to Earth and travels outward — never
+    // through the planet). Recompute launch dir each frame so it stays correct
+    // when the destination changes.
     if (state.earth) {
-        if (!state._launchDir) {
-            const t0 = traj[0], t1 = traj[1] ?? t0;
-            const ldx = t1.x - t0.x, ldy = t1.y - t0.y, ldz = t1.z - t0.z;
-            const lLen = Math.hypot(ldx, ldy, ldz) || 1;
-            state._launchDir = new THREE.Vector3(ldx / lLen, ldy / lLen, ldz / lLen);
-        }
-        const ld = state._launchDir;
+        const t0 = traj[0], t1 = traj[1] ?? t0;
+        const ldx = t1.x - t0.x, ldy = t1.y - t0.y, ldz = t1.z - t0.z;
+        const lLen = Math.hypot(ldx, ldy, ldz) || 1;
+        const lx = ldx / lLen, ly = ldy / lLen, lz = ldz / lLen;
         state.earth.group.position.set(
-            -wp.x - EARTH_RADIUS * ld.x,
-            -wp.y - EARTH_RADIUS * ld.y,
-            -wp.z - EARTH_RADIUS * ld.z,
+            -wp.x - EARTH_RADIUS * lx,
+            -wp.y - EARTH_RADIUS * ly,
+            -wp.z - EARTH_RADIUS * lz,
         );
     }
 

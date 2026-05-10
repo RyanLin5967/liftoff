@@ -59,14 +59,6 @@
             max-width: 320px;
         }
 
-        #journey-panel {
-            position: absolute;
-            bottom: 100px;
-            left: 20px;
-            width: 320px;
-            padding: 16px 18px;
-        }
-
         #ahead-panel {
             position: absolute;
             top: 130px;
@@ -132,119 +124,11 @@
 
         #ahead-panel.empty { display: none; }
 
-        #journey-panel .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            margin-bottom: 12px;
-        }
-
-        #journey-panel .gen {
-            font-size: 11px;
-            letter-spacing: 1.6px;
-            text-transform: uppercase;
-            color: #ffd9a8;
-        }
-
-        #journey-panel .gen .num {
-            color: #fff4d6;
-            font-size: 16px;
-            font-weight: 500;
-            margin-right: 4px;
-        }
-
-        #journey-panel .arrival {
-            font-size: 11px;
+        #year-display .arrival-inline {
             color: #9aa9c4;
-            font-variant-numeric: tabular-nums;
-        }
-
-        #journey-panel .progress {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-
-        #journey-panel .endpoint {
-            font-size: 10px;
-            letter-spacing: 0.8px;
-            color: #9aa9c4;
-            font-variant-numeric: tabular-nums;
-            white-space: nowrap;
-        }
-
-        #journey-panel .endpoint.right { text-align: right; }
-        #journey-panel .endpoint .lbl {
-            color: #6a7a98;
-            text-transform: uppercase;
-            letter-spacing: 1.2px;
-            font-size: 9px;
-            display: block;
-            margin-bottom: 2px;
-        }
-
-        #journey-panel .progress-bar {
-            flex: 1;
-            position: relative;
-            height: 2px;
-            background: rgba(140, 170, 220, 0.18);
-            border-radius: 1px;
-        }
-
-        #journey-panel .progress-bar .fill {
-            position: absolute;
-            inset: 0 auto 0 0;
-            background: linear-gradient(90deg, rgba(207, 225, 255, 0.9), rgba(255, 220, 160, 0.9));
-            border-radius: 1px;
-            width: 0%;
-            transition: width 0.15s ease;
-        }
-
-        #journey-panel .progress-bar .horizon-mark {
-            position: absolute;
-            top: -3px;
-            bottom: -3px;
-            width: 1px;
-            background: rgba(255, 119, 85, 0.7);
-            box-shadow: 0 0 4px rgba(255, 119, 85, 0.7);
-        }
-
-        #journey-panel .horizon-row,
-        #journey-panel .next-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
+            margin-left: 4px;
             font-size: 12px;
-            color: #c6d2e6;
-            padding: 6px 0;
-            border-top: 1px solid rgba(140, 170, 220, 0.1);
-            font-variant-numeric: tabular-nums;
         }
-
-        #journey-panel .horizon-row .lbl,
-        #journey-panel .next-row .lbl {
-            color: #6a7a98;
-            text-transform: uppercase;
-            letter-spacing: 1.2px;
-            font-size: 9px;
-        }
-
-        #journey-panel .horizon-row.crossed .val { color: #ffb38a; }
-        #journey-panel .horizon-row.imminent .val { color: #ffd9a8; }
-
-        #journey-panel .next-row .val {
-            color: #cfe1ff;
-            text-align: right;
-            max-width: 220px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        #journey-panel .next-row .val.memory::before { content: '✦ '; color: #ffe7b8; }
-        #journey-panel .next-row .val.milestone::before { content: '◆ '; color: #cfe1ff; }
-        #journey-panel .next-row .val.arrival::before { content: '⌖ '; color: #ffb38a; }
 
         #light-panel .label {
             font-size: 10px;
@@ -1108,30 +992,6 @@
         <div id="ahead-panel" class="panel">
             <div class="ahead-title">What's Ahead</div>
             <div id="ahead-events"></div>
-        </div>
-
-        <div id="journey-panel" class="panel">
-            <div class="header">
-                <div class="arrival" id="journey-arrival">— yrs to arrival</div>
-            </div>
-            <div class="progress">
-                <div class="endpoint">
-                    <span class="lbl">Earth</span>
-                    <span id="journey-from-earth">0.00 ly</span>
-                </div>
-                <div class="progress-bar">
-                    <div class="fill" id="journey-fill"></div>
-                    <div class="horizon-mark" id="journey-horizon-mark" style="left: 0%;"></div>
-                </div>
-                <div class="endpoint right">
-                    <span class="lbl" id="journey-dest-name">Destination</span>
-                    <span id="journey-to-dest">— ly</span>
-                </div>
-            </div>
-            <div class="horizon-row" id="journey-horizon-row">
-                <span class="lbl">Light horizon</span>
-                <span class="val" id="journey-horizon-val">—</span>
-            </div>
         </div>
 
         <div id="slider-container">
