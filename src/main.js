@@ -535,7 +535,7 @@ async function setup() {
     // per real-time second. We piggyback on the slider's existing 'input'
     // handler so scene/UI/audio updates fall out for free.
     let isPlaying = false;
-    let playbackRate = parseFloat(ui.settingPlaybackRate?.value) || 2;
+    let playbackRate = parseFloat(ui.settingPlaybackRate?.value).toFixed() || 2;
     let lastTickTime = 0;
     let rafId = 0;
     let scrubbingFromTick = false; // ignore our own pointerdown-pause when ticking

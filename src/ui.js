@@ -18,6 +18,7 @@ export function createUI(voyageData) {
     const settingReset = document.getElementById('setting-reset');
     const settingSpeed = document.getElementById('setting-speed');
     const settingPlaybackRate = document.getElementById('setting-playback-rate');
+    const setRealTime = document.getElementById("set-realtime")
     const playButton = document.getElementById('play-button');
     const settingChangeDestination = document.getElementById('setting-change-destination');
     const setupOverlay = document.getElementById('setup-overlay');
@@ -43,6 +44,7 @@ export function createUI(voyageData) {
     const aheadPanel = document.getElementById('ahead-panel');
     const aheadEvents = document.getElementById('ahead-events');
 
+    setRealTime.addEventListener("click", () => settingPlaybackRate.value = "0.00000003171") // 0.00000003171
     const totalYears = voyageData?.metadata?.total_years ?? 250;
     const destinationName =
         voyageData?.metadata?.destination_name ??
@@ -80,6 +82,7 @@ export function createUI(voyageData) {
         settingsPanel,
         settingsDestination,
         settingSpeed,
+        setRealTime,
         settingChangeDestination,
         setupOverlay,
         setupDestination,
