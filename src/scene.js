@@ -10,25 +10,66 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 // === Ship model — swap this path to use a different GLB ===
 // Path is relative to index.html (the page root).
 const SHIP_MODEL_PATH = './spaceship.glb';
-// Tweak these if the model appears the wrong size or facing the wrong way.
-const SHIP_SCALE = 0.12;
+// Scene units are PARSECS. Real ships are ~10⁻¹³ pc and Earth is ~2×10⁻¹⁰ pc;
+// rendering at literal scale would make them invisible. These constants
+// are a deliberate visibility-vs-scale-realism compromise — small enough that
+// Earth & ship don't dominate a multi-light-year trajectory, but big enough
+// to be recognizable when the camera is near them.
+const SHIP_SCALE = 0.0015;
 const SHIP_MODEL_EULER = new THREE.Euler(0, Math.PI, 0); // 180° yaw so the nose faces forward
 // ===========================================================
 
 // === Earth model + textures ===
-// Earth.obj uses two named groups: `earth_twilight_GEO` (surface) and
-// `clouds_GEO` (cloud shell). Textures live in ./Earth_Texture/.
 const EARTH_MODEL_PATH = './Earth.obj';
 const EARTH_TEXTURE_DIR = './Earth_Texture/';
 // ===============================
 
-// === Planet sizing — real-world ratio, scaled for visibility ===
-// PLANET_SCALE sets the absolute visual size of an Earth-sized planet.
-// To add other planets, multiply by their real-world Earth-relative radius
-// (Mars ≈ 0.532, Jupiter ≈ 11.2, Proxima b ≈ 1.07, etc.) so proportions stay real.
-const PLANET_SCALE = 0.4;
+// === Planet sizing ===
+// Earth at 0.005 pc is ~25 million × real, but only ~0.4% of the Sol→Proxima
+// trajectory length, which preserves a real sense of "leaving home and going
+// far". For other planets, multiply by their Earth-relative radius — capped
+// at PLANET_RADIUS_MAX so Jupiter doesn't render bigger than its own orbit.
+const PLANET_SCALE = 0.005;
 const EARTH_RADIUS = PLANET_SCALE * 1.0;
-// ================================================================
+const PLANET_RADIUS_MAX = PLANET_SCALE * 3.0; // visual cap (gas giants)
+// 1 AU in scene-space parsecs. Real ratio is 1 AU ≈ 4.85e-6 pc; this is
+// hugely scaled up so the planets are spread out enough to actually see.
+// At 0.012, Neptune sits ~0.36 pc from Sol (~28% of the way to Proxima).
+const PLANET_AU_SCALE = 0.012;
+// =====================
+
+// === Solar system planets (excluding Earth — Earth is anchored to the
+// ship's launch point separately).
+// `lon` = ecliptic longitude in degrees. Approximate values for May 2026
+// looked up from the Astronomical Almanac; only used to spread the planets
+// around their orbits so they don't all sit on the same axis.
+const SCALE = 4
+const PLANETS = [
+    { name: 'Mercury', obj: './mercury.obj', tex: './Mercury_Texture/',
+      files: { base: 'mercury_Base_Color.png',  normal: 'mercury_Normal.png',  roughness: 'mercury_Roughness.png' },
+      au: 0.387 * SCALE * SCALE, radius: 0.383, lon: 110 },
+    { name: 'Venus',   obj: './venus.obj',   tex: './Venus_Texture/',
+      files: { base: 'venus_Base_Color.png',    normal: 'venus_Normal.png',    roughness: 'venus_Roughness.png' },
+      au: 0.723 * SCALE * SCALE, radius: 0.949, lon: 200 },
+    { name: 'Mars',    obj: './mars.obj',    tex: './Mars_Texture/',
+      files: { base: 'mars_Base_Color.png',     normal: 'mars_Normal.png' },
+      au: 1.524 * SCALE * SCALE, radius: 0.532, lon: 140 },
+    { name: 'Jupiter', obj: './jupiter.obj', tex: './Jupiter_Texture/',
+      files: { base: 'jupiter_MAT_Base_Color.png', normal: 'jupiter_MAT_Normal.png', roughness: 'jupiter_MAT_Roughness.png' },
+      au: 5.20 * SCALE, radius: 11.21, lon: 80 },
+    { name: 'Saturn',  obj: './saturn.obj',  tex: './Saturn_Texture/',
+      files: { base: 'saturn_Base_Color.png',   normal: 'saturn_Normal.png',   roughness: 'saturn_Roughness.png' },
+      rings: { base: 'saturn_rings_Base_Color.png', opacity: 'saturn_rings_Opacity.png',
+               roughness: 'saturn_rings_Roughness.png', normal: 'saturn_rings_normal.png' },
+      au: 9.58 * SCALE, radius: 9.45, lon: 250 },
+    { name: 'Uranus',  obj: './uranus.obj',  tex: './Uranus_Texture/',
+      files: { base: 'uranus_baseColor.png',    roughness: 'uranus_roughness.png' },
+      au: 19.18* SCALE, radius: 4.01, lon: 60 },
+    { name: 'Neptune', obj: './neptune.obj', tex: './Neptune_Texture/',
+      files: { base: 'neptune_Base_Color.png',  normal: 'neptune_Normal.png',  roughness: 'neptune_Roughness.png' },
+      au: 30.05* SCALE, radius: 3.88, lon: 0 },
+];
+// ===============================
 
 const STAR_VERTEX = `
     attribute vec3 instancePosition;
@@ -49,9 +90,14 @@ const STAR_VERTEX = `
         vec4 mvCenter = modelViewMatrix * vec4(instancePosition, 1.0);
         float depth = max(0.001, -mvCenter.z);
 
-        // Apparent size in screen pixels — matches the old gl_PointSize
-        // formula at moderate distances, but is no longer hardware-capped.
-        float pixelSize = instanceSize * (200.0 / depth);
+        // Apparent size in screen pixels. Linear inverse-distance for the
+        // far/dim end. Hard-capped at default view so a bright nearby star
+        // (e.g. Alpha Centauri at 1.3 pc) doesn't render as a giant orb —
+        // the cap relaxes when you zoom in (depth < 0.05 pc) so close-up
+        // approach to a star still feels dramatic.
+        float linear = instanceSize * (90.0 / depth);
+        float maxPx = 45.0 + 240.0 * smoothstep(0.05, 0.002, depth);
+        float pixelSize = min(linear, maxPx);
 
         float viewPerPixel = depth / (projectionMatrix[1][1] * uScreenHeight * 0.5);
         float worldOffset = pixelSize * viewPerPixel;
@@ -123,7 +169,7 @@ export function createScene(starsData, voyageData, Voyage) {
         const dest = meta?.destination ?? meta?.proxima;
         const target = new THREE.Vector3(0, 0, 0);
         if (!dest || !(dest.x || dest.y || dest.z)) {
-            return { pos: new THREE.Vector3(0.9, 0.7, 0.9), target };
+            return { pos: new THREE.Vector3(0.04, 0.025, 0.04), target };
         }
         // Build a trajectory-aligned frame.
         const forward = new THREE.Vector3(dest.x, dest.y, dest.z).normalize();
@@ -133,15 +179,10 @@ export function createScene(starsData, voyageData, Voyage) {
         right.normalize();
         const up = new THREE.Vector3().crossVectors(right, forward).normalize();
 
-        // Behind-and-above the ship. View direction toward origin is
-        // ~85% along forward, ~31° below horizontal — a chase-cam composition.
-
-        // COULD UN COMMENT OUT
-        // const pos = new THREE.Vector3();
-        // pos.addScaledVector(forward, -1.0);
-        // pos.addScaledVector(up, 0.6);
-
-        const pos = new THREE.Vector3(0.5, 1.1, 0.5)
+        // Behind-and-above the ship at small (ship-scale) distance so the
+        // ship + Earth are clearly visible while the trajectory line still
+        // recedes off into the distance over many parsecs.
+        const pos = new THREE.Vector3(0.022, 0.05, 0.022);
 
         return { pos, target };
     }
@@ -165,7 +206,7 @@ export function createScene(starsData, voyageData, Voyage) {
     controls.panSpeed = 0.9;
     controls.screenSpacePanning = true;     // pan in screen space (intuitive)
     controls.enablePan = true;
-    controls.minDistance = 0.1;
+    controls.minDistance = 0.002;   // can zoom in to ship/Earth scale
     controls.maxDistance = 80;
     // Keep the camera from flipping past the poles (causes disorienting snaps).
     controls.minPolarAngle = 0.05;
@@ -208,11 +249,13 @@ export function createScene(starsData, voyageData, Voyage) {
     const earth = createEarth();
     scene.add(earth.group);
 
+    // Other 7 solar-system planets, at scaled heliocentric positions.
+    const planets = createPlanets();
+    scene.add(planets.group);
+
     const constellations = new THREE.Group();
     scene.add(constellations);
 
-    const lightHorizon = createLightHorizonSphere();
-    scene.add(lightHorizon);
 
     // Bloom post-processing
     const composer = new EffectComposer(renderer);
@@ -298,8 +341,12 @@ export function createScene(starsData, voyageData, Voyage) {
         const aspect = camera.aspect || 1;
         // ~14px on a 1080p screen; expand slightly for big bright stars
         const baseThreshold = 0.018;
+        // Among all candidates within picking radius, prefer the one closest
+        // to the camera (smallest NDC z) — i.e. the star drawn ON TOP. Falls
+        // back to closest-in-screen-space when only one candidate matches.
         let bestIdx = -1;
-        let bestDist2 = baseThreshold * baseThreshold;
+        let bestDepth = Infinity;
+        let bestD2 = Infinity;
         for (let i = 0; i < count; i++) {
             _pickVec.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
             _pickVec.project(camera);
@@ -309,8 +356,15 @@ export function createScene(starsData, voyageData, Voyage) {
             const sizeBoost = (sizes[i] || 1) * 0.0008;
             const tol = baseThreshold + sizeBoost;
             const d2 = dx * dx + dy * dy;
-            if (d2 < tol * tol && d2 < bestDist2) {
-                bestDist2 = d2;
+            if (d2 >= tol * tol) continue;
+            // Within picking radius. Prefer closer-to-camera (smaller z).
+            // Use d2 as a tiebreaker if depths are essentially equal.
+            if (
+                _pickVec.z < bestDepth - 1e-4 ||
+                (Math.abs(_pickVec.z - bestDepth) <= 1e-4 && d2 < bestD2)
+            ) {
+                bestDepth = _pickVec.z;
+                bestD2 = d2;
                 bestIdx = i;
             }
         }
@@ -363,8 +417,8 @@ export function createScene(starsData, voyageData, Voyage) {
         trajectory,
         ship,
         earth,
+        planets,
         constellations,
-        lightHorizon,
         voyageData,
         onStarHover,
         onStarClick,
@@ -418,13 +472,11 @@ function createStarField(starsData, Voyage) {
     const adjustedSizes = new Float32Array(sizes);
     for (let i = 0; i < count; i++) {
         const cat = starsData[i].category;
-        if (cat === 'dwarf') {
-            styles[i] = 1;
-            if (adjustedSizes[i] < 0.7) adjustedSizes[i] = 0.7;
-        } else if (cat === 'exoplanet_host') {
+        if (cat === 'exoplanet_host') {
             styles[i] = 2;
             if (adjustedSizes[i] < 1.0) adjustedSizes[i] = 1.0;
         } else {
+            // Brown dwarfs and HYG stars: render as regular stars.
             styles[i] = 0;
         }
     }
@@ -637,18 +689,113 @@ function createEarth() {
     return earth;
 }
 
-function createLightHorizonSphere() {
-    const geometry = new THREE.SphereGeometry(1, 32, 32);
-    const material = new THREE.MeshBasicMaterial({
-        color: 0x4488dd,
-        transparent: true,
-        opacity: 0.05,
-        side: THREE.BackSide,
-        depthWrite: false,
+/**
+ * Build one planet from a PLANETS[] config. Same OBJ-normalize-then-scale
+ * pattern as createEarth(): outer group is positioned per-frame to keep the
+ * planet at its heliocentric coordinate; wrapper holds the loaded model
+ * normalized to a unit sphere and is then scaled by the planet's visual radius.
+ *
+ * Saturn additionally gets an annulus mesh for its rings (textured separately).
+ */
+function createPlanet(cfg) {
+    const visualRadius = Math.min(PLANET_RADIUS_MAX, PLANET_SCALE * cfg.radius);
+
+    // Heliocentric position in the trajectory frame's XY plane.
+    const orbitR = PLANET_AU_SCALE * cfg.au;
+    const lonRad = (cfg.lon ?? 0) * Math.PI / 180;
+    const orbitX = orbitR * Math.cos(lonRad);
+    const orbitY = orbitR * Math.sin(lonRad);
+
+    const group = new THREE.Group();           // positioned per frame to track Sol
+    const orbitNode = new THREE.Group();        // holds the offset to orbital pos
+    orbitNode.position.set(orbitX, orbitY, 0);
+    group.add(orbitNode);
+
+    const wrapper = new THREE.Group();
+    wrapper.scale.setScalar(visualRadius);
+    orbitNode.add(wrapper);
+
+    const planet = { name: cfg.name, group, orbitNode, wrapper, mesh: null, rings: null };
+
+    const texLoader = new THREE.TextureLoader();
+    const sRGB   = (file) => { const t = texLoader.load(cfg.tex + file); t.colorSpace = THREE.SRGBColorSpace; return t; };
+    const linear = (file) => texLoader.load(cfg.tex + file);
+
+    const matOpts = {
+        map: sRGB(cfg.files.base),
+        roughness: 1.0,
+        metalness: 0.0,
+    };
+    if (cfg.files.normal)    matOpts.normalMap    = linear(cfg.files.normal);
+    if (cfg.files.roughness) matOpts.roughnessMap = linear(cfg.files.roughness);
+    const planetMat = new THREE.MeshStandardMaterial(matOpts);
+
+    new OBJLoader().load(cfg.obj, (obj) => {
+        obj.traverse((c) => { if (c.isMesh) { c.material = planetMat; planet.mesh = c; } });
+        // Normalize to unit-sphere so wrapper.scale = visualRadius gives the
+        // exact final size regardless of OBJ's source units.
+        const bbox = new THREE.Box3().setFromObject(obj);
+        const sphere = new THREE.Sphere();
+        bbox.getBoundingSphere(sphere);
+        const inner = new THREE.Group();
+        if (sphere.radius > 0) {
+            obj.position.copy(sphere.center).multiplyScalar(-1);
+            inner.scale.setScalar(1 / sphere.radius);
+        }
+        inner.add(obj);
+        wrapper.add(inner);
+    }, undefined, (err) => console.error(`Failed to load ${cfg.name} model:`, err));
+
+    // Saturn-only: ring annulus.
+    if (cfg.rings) {
+        const ringInner = 1.2;  // multiples of planet visual radius
+        const ringOuter = 2.2;
+        const ringGeo = new THREE.RingGeometry(ringInner, ringOuter, 96);
+        // RingGeometry's default UVs are weird; remap so the ring texture
+        // wraps as a simple radial gradient (1D across the band).
+        const uv = ringGeo.attributes.uv;
+        const pos = ringGeo.attributes.position;
+        for (let i = 0; i < uv.count; i++) {
+            const r = Math.hypot(pos.getX(i), pos.getY(i));
+            const t = (r - ringInner) / (ringOuter - ringInner);
+            uv.setXY(i, t, 0.5);
+        }
+        const ringMat = new THREE.MeshStandardMaterial({
+            map: sRGB(cfg.rings.base),
+            alphaMap: linear(cfg.rings.opacity),
+            roughnessMap: cfg.rings.roughness ? linear(cfg.rings.roughness) : null,
+            normalMap:    cfg.rings.normal    ? linear(cfg.rings.normal)    : null,
+            transparent: true,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            roughness: 1.0,
+            metalness: 0.0,
+        });
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.rotation.x = Math.PI / 2; // lay flat in XZ plane
+        // Tilt rings ~26.7° (Saturn's real axial tilt) for character.
+        ringMesh.rotation.y = (26.7 * Math.PI) / 180;
+        wrapper.add(ringMesh);
+        planet.rings = ringMesh;
+    }
+
+    return planet;
+}
+
+/**
+ * Build the whole solar system (excluding Earth — that lives near the ship).
+ * Returns a parent group that should be positioned at -wp each frame so the
+ * planets sit at their heliocentric coordinates relative to Sol (which is
+ * itself at -wp in scene coords).
+ */
+function createPlanets() {
+    const group = new THREE.Group();
+    const planets = PLANETS.map((cfg) => {
+        const p = createPlanet(cfg);
+        group.add(p.group);
+        return p;
     });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.scale.setScalar(0.001);
-    return mesh;
+    return { group, planets };
 }
 
 export function updateScene(state, wp, Voyage) {
@@ -687,20 +834,15 @@ export function updateScene(state, wp, Voyage) {
         );
     }
 
+    // Solar-system planets — group sits exactly at Sol's scene position so
+    // each planet's own offset (set in createPlanet) places it correctly.
+    if (state.planets) {
+        state.planets.group.position.set(-wp.x, -wp.y, -wp.z);
+    }
+
     // Reveal "past" portion up to current waypoint
     const drawCount = Math.max(2, Math.min(state.trajectory.totalCount, wp.waypointIndex + 1));
     state.trajectory.past.geometry.setDrawRange(0, drawCount);
-
-    // Light horizon sphere — centered at Sol (-wp in ship-relative space),
-    // with radius = distance from Sol to ship, so the sphere's surface always
-    // passes through the ship's center. Color flips after the horizon year.
-    state.lightHorizon.position.set(-wp.x, -wp.y, -wp.z);
-    const horizonYr = Voyage.getLightHorizon().ship_year;
-    const past = wp.year >= horizonYr;
-    const radius = Math.max(0.001, Math.hypot(wp.x, wp.y, wp.z));
-    state.lightHorizon.scale.setScalar(radius);
-    state.lightHorizon.material.color.setHex(past ? 0xff7755 : 0x4488dd);
-    state.lightHorizon.material.opacity = past ? 0.02 : 0.06;
 
     // Constellation lines (rebuild geometry — only a few per scrub)
     const constLines = Voyage.getConstellationLines(wp.x, wp.y, wp.z) || [];

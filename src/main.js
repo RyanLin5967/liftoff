@@ -780,6 +780,11 @@ async function setup() {
                 showMilestone(ui, m.label);
             }
         }
+
+        // Manual scrub-to-end also fires the arrival overlay. (Playback's
+        // tick() handles its own end-detection; this covers user dragging.)
+        const totalYears = voyageData.metadata?.total_years ?? 250;
+        if (wp.year >= totalYears - 0.05) showArrival();
     });
 
     ui.muteButton.addEventListener('click', () => {

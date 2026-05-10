@@ -3,3 +3,5 @@ CLAUDE.md
 spaceship.glb
 Earth.obj
 Earth_Texture
+*.obj
+*_Texture/

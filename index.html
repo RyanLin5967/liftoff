@@ -181,6 +181,21 @@
             margin-top: 2px;
         }
 
+        #sol-status .hint {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(140, 170, 220, 0.1);
+            font-size: 10px;
+            line-height: 1.45;
+            color: #6a7a98;
+            max-width: 220px;
+            margin-left: auto;
+        }
+
+        #sol-status {
+            min-width: 240px;
+        }
+
         #slider-container {
             position: absolute;
             bottom: 56px;
@@ -1196,9 +1211,10 @@
         </div>
 
         <div id="sol-status" class="panel">
-            <div class="label">Sol — apparent magnitude</div>
+            <div class="label">Sol from the ship</div>
             <div class="magnitude">—</div>
             <div class="visibility">—</div>
+            <div class="hint">Apparent magnitude — how bright Sol looks from here. Lower is brighter. Naked eye limit ≈ 6.</div>
         </div>
 
         <div id="ahead-panel" class="panel">
