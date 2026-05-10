@@ -977,6 +977,202 @@
             transition: background 0.15s ease;
             font-weight: bold;
         }
+
+        #set-realtime.realtime-active {
+            background: rgba(255, 130, 60, 0.85);
+            border-color: rgba(255, 200, 140, 0.95);
+            color: #fff;
+            box-shadow: 0 0 16px rgba(255, 160, 80, 0.55);
+            animation: realtimePulse 2.4s ease-in-out infinite;
+        }
+
+        @keyframes realtimePulse {
+            0%, 100% { box-shadow: 0 0 12px rgba(255, 160, 80, 0.45); }
+            50%      { box-shadow: 0 0 22px rgba(255, 200, 120, 0.85); }
+        }
+
+        /* Form controls dimmed when disabled (slider thumb, inputs, buttons) */
+        #slider:disabled,
+        #settings-panel input:disabled,
+        #settings-panel button:disabled,
+        #play-button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        /* === Launch flash — fires when "real-time" is activated === */
+        #launch-flash {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0;
+            background:
+                radial-gradient(ellipse at center,
+                    rgba(255, 240, 210, 0.95) 0%,
+                    rgba(255, 200, 130, 0.55) 22%,
+                    rgba(120, 80, 30, 0.25) 50%,
+                    rgba(0, 0, 0, 0) 75%);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #launch-flash.active {
+            animation: launchFlash 1.8s ease-out forwards;
+        }
+
+        @keyframes launchFlash {
+            0%   { opacity: 0; }
+            10%  { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        #launch-flash .launch-text {
+            text-align: center;
+            color: #fff;
+            text-shadow: 0 0 24px rgba(255, 200, 100, 0.9);
+            transform: scale(0.85);
+            opacity: 0;
+        }
+
+        #launch-flash.active .launch-text {
+            animation: launchTextRise 1.8s ease-out forwards;
+        }
+
+        @keyframes launchTextRise {
+            0%   { transform: scale(0.85); opacity: 0; }
+            18%  { transform: scale(1.0);  opacity: 1; }
+            85%  { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(1.1);  opacity: 0; }
+        }
+
+        #launch-flash .launch-headline {
+            font-size: 36px;
+            letter-spacing: 6px;
+            font-weight: 600;
+        }
+
+        #launch-flash .launch-sub {
+            margin-top: 8px;
+            font-size: 13px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: #fff4d6;
+        }
+
+        /* === Arrival celebration overlay === */
+        #arrival-overlay {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(ellipse at center,
+                rgba(20, 30, 55, 0.85) 0%,
+                rgba(2, 4, 10, 0.95) 70%);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 250;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+        }
+
+        #arrival-overlay.open { display: flex; opacity: 1; }
+
+        #arrival-card {
+            text-align: center;
+            color: #fff;
+            padding: 60px 80px;
+            border: 1px solid rgba(255, 220, 160, 0.4);
+            border-radius: 12px;
+            background: rgba(8, 14, 28, 0.85);
+            box-shadow:
+                0 0 60px rgba(255, 200, 120, 0.45),
+                inset 0 0 60px rgba(80, 130, 220, 0.1);
+            animation: arrivalRise 1.0s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        @keyframes arrivalRise {
+            0%   { transform: translateY(40px) scale(0.92); opacity: 0; }
+            100% { transform: translateY(0)    scale(1);    opacity: 1; }
+        }
+
+        #arrival-card .arrival-glyph {
+            font-size: 56px;
+            color: #ffd9a8;
+            text-shadow: 0 0 30px rgba(255, 200, 100, 0.95);
+            margin-bottom: 18px;
+            animation: arrivalGlyphSpin 8s linear infinite;
+        }
+
+        @keyframes arrivalGlyphSpin {
+            from { text-shadow: 0 0 30px rgba(255, 200, 100, 0.9); }
+            50%  { text-shadow: 0 0 50px rgba(255, 230, 160, 1.0); }
+            to   { text-shadow: 0 0 30px rgba(255, 200, 100, 0.9); }
+        }
+
+        #arrival-card .arrival-eyebrow {
+            font-size: 11px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: #ffd9a8;
+            margin-bottom: 6px;
+        }
+
+        #arrival-card .arrival-headline {
+            font-size: 44px;
+            font-weight: 500;
+            letter-spacing: 1.5px;
+            margin-bottom: 6px;
+            color: #ffffff;
+            text-shadow: 0 0 24px rgba(255, 200, 100, 0.4);
+        }
+
+        #arrival-card .arrival-destination {
+            font-size: 22px;
+            color: #cfe1ff;
+            margin-bottom: 26px;
+            letter-spacing: 1px;
+        }
+
+        #arrival-card .arrival-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 22px;
+            margin-bottom: 28px;
+        }
+
+        #arrival-card .stat .lbl {
+            font-size: 9px;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            color: #7a8aa8;
+            margin-bottom: 4px;
+        }
+
+        #arrival-card .stat .val {
+            font-size: 22px;
+            color: #ffe7b8;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 0 14px rgba(255, 200, 100, 0.5);
+        }
+
+        #arrival-card #arrival-close {
+            padding: 12px 32px;
+            background: linear-gradient(180deg, rgba(255, 200, 120, 0.25), rgba(80, 130, 220, 0.45));
+            border: 1px solid rgba(255, 220, 160, 0.6);
+            border-radius: 4px;
+            color: #fff;
+            font-size: 13px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        #arrival-card #arrival-close:hover {
+            background: linear-gradient(180deg, rgba(255, 220, 160, 0.4), rgba(110, 160, 240, 0.6));
+            box-shadow: 0 0 18px rgba(255, 200, 120, 0.6);
+        }
     </style>
     <script type="importmap">
     {
@@ -1103,6 +1299,21 @@
         <div id="milestone-toast"></div>
 
         <div id="star-tooltip"></div>
+
+        <div id="arrival-overlay">
+            <div id="arrival-card">
+                <div class="arrival-glyph">⌖</div>
+                <div class="arrival-eyebrow">Arrival</div>
+                <div class="arrival-headline" id="arrival-headline">Welcome home.</div>
+                <div class="arrival-destination" id="arrival-destination">—</div>
+                <div class="arrival-stats">
+                    <div class="stat"><div class="lbl">Years aboard</div><div class="val" id="arrival-years">—</div></div>
+                    <div class="stat"><div class="lbl">Distance</div><div class="val" id="arrival-distance">—</div></div>
+                    <div class="stat"><div class="lbl">Average speed</div><div class="val" id="arrival-speed">—</div></div>
+                </div>
+                <button id="arrival-close">Continue exploring</button>
+            </div>
+        </div>
 
         <div id="setup-overlay">
             <div id="setup-panel" class="panel">

@@ -516,6 +516,7 @@ async function setup() {
         applyVoyageMetadata(ui, voyageData.metadata);
         rebuildTimeline(ui, voyageData.pins, voyageData.metadata.total_years);
         seenMilestones.clear();
+        arrivalShown = false; // new voyage → arrival can fire again
 
         // Events depend on the (now-mutated) trajectory + milestones, so refresh.
         allEvents = computeAllEvents(voyageData, starsData);
@@ -538,10 +539,16 @@ async function setup() {
     // per real-time second. We piggyback on the slider's existing 'input'
     // handler so scene/UI/audio updates fall out for free.
     let isPlaying = false;
-    let playbackRate = parseFloat(ui.settingPlaybackRate?.value).toFixed() || 2;
+    // BUG FIX: was parseFloat(...).toFixed() which returns a STRING, breaking
+    // arithmetic in tick(). Use plain parseFloat.
+    let playbackRate = parseFloat(ui.settingPlaybackRate?.value);
+    if (!Number.isFinite(playbackRate) || playbackRate <= 0) playbackRate = 2;
     let lastTickTime = 0;
     let rafId = 0;
     let scrubbingFromTick = false; // ignore our own pointerdown-pause when ticking
+    const SECONDS_PER_YEAR = 365.25 * 24 * 60 * 60; // ≈ 3.156e7
+    let isRealtime = false;
+    let savedPlaybackRate = playbackRate; // restore when toggling real-time off
 
     function tick(now) {
         if (!isPlaying) return;
@@ -552,20 +559,53 @@ async function setup() {
         const totalYears = voyageData.metadata?.total_years ?? 250;
         let year = parseFloat(ui.slider.value) + dt * playbackRate;
         let reachedEnd = false;
-        if (year >= totalYears) {
+        if (!Number.isFinite(year) || year >= totalYears) {
             year = totalYears;
             reachedEnd = true;
         }
         scrubbingFromTick = true;
-        ui.slider.value = year;
+        // Clamp via the slider's own max as a belt-and-suspenders against
+        // floating-point overshoot.
+        ui.slider.value = String(Math.min(year, totalYears));
         ui.slider.dispatchEvent(new Event('input', { bubbles: true }));
         scrubbingFromTick = false;
 
         if (reachedEnd) {
             setIsPlaying(false);
+            // If we were in real-time, switch back to manual mode; otherwise
+            // the user gets stuck with disabled controls forever.
+            if (isRealtime) setRealtimeMode(false);
+            showArrival();
             return;
         }
         rafId = requestAnimationFrame(tick);
+    }
+
+    let arrivalShown = false;
+    function showArrival() {
+        if (arrivalShown) return;
+        const overlay = document.getElementById('arrival-overlay');
+        if (!overlay) return;
+        arrivalShown = true;
+        const meta = voyageData.metadata || {};
+        const destName = meta.destination_name ?? meta.destination?.name ?? 'destination';
+        const totalYears = meta.total_years ?? 250;
+        const distLy = meta.total_distance_ly ?? 0;
+        const speedC = meta.ship_speed_c ?? (distLy / Math.max(1, totalYears));
+        const setText = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+        setText('arrival-headline', 'Welcome home.');
+        setText('arrival-destination', destName);
+        setText('arrival-years', `${totalYears.toFixed(1)}`);
+        setText('arrival-distance', `${distLy.toFixed(2)} ly`);
+        setText('arrival-speed', `${speedC.toFixed(3)}c`);
+        overlay.classList.add('open');
+    }
+    const arrivalCloseBtn = document.getElementById('arrival-close');
+    if (arrivalCloseBtn) {
+        arrivalCloseBtn.addEventListener('click', () => {
+            const overlay = document.getElementById('arrival-overlay');
+            if (overlay) overlay.classList.remove('open');
+        });
     }
 
     function setIsPlaying(playing) {
@@ -589,14 +629,62 @@ async function setup() {
         ui.playButton.addEventListener('click', () => setIsPlaying(!isPlaying));
     }
 
-    // if toggled, change text and make the time buttons/other stuff disabled
-    // for some reason, it will go if i'm on a different window
-    let isRealtime = false;
-    ui.setRealTime.addEventListener("click", () => {
-        ui.settingPlaybackRate.value = "0.00000003171";
-        isRealtime = !isRealtime;
-        setIsPlaying(isRealtime)
-    })
+    function setRealtimeMode(on) {
+        if (on === isRealtime) return;
+        isRealtime = on;
+        if (on) {
+            // Remember user's chosen rate so we can restore it later.
+            savedPlaybackRate = playbackRate;
+            playbackRate = 1 / SECONDS_PER_YEAR; // 1 ship-year per real year
+            disableTimeControls(true);
+            triggerLaunchFlash();
+            setIsPlaying(true);
+            ui.setRealTime.textContent = 'Stop real-time';
+            ui.setRealTime.classList.add('realtime-active');
+        } else {
+            playbackRate = savedPlaybackRate;
+            disableTimeControls(false);
+            setIsPlaying(false);
+            ui.setRealTime.textContent = 'Toggle real-time travel';
+            ui.setRealTime.classList.remove('realtime-active');
+        }
+    }
+
+    function disableTimeControls(disabled) {
+        ui.slider.disabled = disabled;
+        if (ui.playButton) ui.playButton.disabled = disabled;
+        if (ui.settingPlaybackRate) ui.settingPlaybackRate.disabled = disabled;
+        if (ui.settingSpeed) ui.settingSpeed.disabled = disabled;
+        if (ui.settingChangeDestination) ui.settingChangeDestination.disabled = disabled;
+        const startEl = document.getElementById('setting-start');
+        const stepEl = document.getElementById('setting-step');
+        const resetEl = document.getElementById('setting-reset');
+        if (startEl) startEl.disabled = disabled;
+        if (stepEl) stepEl.disabled = disabled;
+        if (resetEl) resetEl.disabled = disabled;
+    }
+
+    function triggerLaunchFlash() {
+        let flash = document.getElementById('launch-flash');
+        if (!flash) {
+            flash = document.createElement('div');
+            flash.id = 'launch-flash';
+            flash.innerHTML = `
+                <div class="launch-text">
+                    <div class="launch-headline">VOYAGE INITIATED</div>
+                    <div class="launch-sub">Real-time travel · 1 ship-year per real year</div>
+                </div>`;
+            document.body.appendChild(flash);
+        }
+        flash.classList.remove('active');
+        // force reflow so the animation restarts on repeated activations
+        void flash.offsetWidth;
+        flash.classList.add('active');
+    }
+
+    if (ui.setRealTime) {
+        ui.setRealTime.addEventListener('click', () => setRealtimeMode(!isRealtime));
+    }
 
     // Manual scrub auto-pauses playback (so user input wins).
     ui.slider.addEventListener('pointerdown', () => {

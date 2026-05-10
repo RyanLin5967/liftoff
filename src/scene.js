@@ -34,30 +34,30 @@ const STAR_VERTEX = `
     attribute vec3 instancePosition;
     attribute vec3 instanceColor;
     attribute float instanceSize;
+    attribute float instanceStyle;   // 0=star, 1=dwarf disk, 2=exoplanet host
     uniform float uScreenHeight;
     varying vec3 vColor;
     varying vec2 vUv;
+    varying float vStyle;
 
     void main() {
         vColor = instanceColor;
         vUv = uv;
+        vStyle = instanceStyle;
 
-        // View-space position of the quad center (the star).
+        // View-space position of the quad center (the star/planet).
         vec4 mvCenter = modelViewMatrix * vec4(instancePosition, 1.0);
         float depth = max(0.001, -mvCenter.z);
 
-        // Desired apparent size in screen pixels (matches the old
-        // gl_PointSize = size * 200/depth formula at moderate distances, but
-        // is no longer capped, so close stars keep growing).
+        // Apparent size in screen pixels — matches the old gl_PointSize
+        // formula at moderate distances, but is no longer hardware-capped.
         float pixelSize = instanceSize * (200.0 / depth);
 
-        // Convert pixel size to a view-space xy offset, using the projection
-        // matrix's vertical-FoV term and the current screen height.
         float viewPerPixel = depth / (projectionMatrix[1][1] * uScreenHeight * 0.5);
         float worldOffset = pixelSize * viewPerPixel;
 
-        // Offset the quad vertex in view-space xy. position is in [-0.5, 0.5]
-        // (PlaneGeometry default), so the quad always faces the camera.
+        // PlaneGeometry vertices are in [-0.5, 0.5]; offset in view-space xy
+        // so the quad always faces the camera.
         mvCenter.xy += position.xy * worldOffset;
         gl_Position = projectionMatrix * mvCenter;
     }
@@ -66,11 +66,36 @@ const STAR_VERTEX = `
 const STAR_FRAGMENT = `
     varying vec3 vColor;
     varying vec2 vUv;
+    varying float vStyle;
+
     void main() {
-        float d = length(vUv - vec2(0.5));
-        if (d > 0.5) discard;
-        float alpha = 1.0 - smoothstep(0.0, 0.5, d);
-        gl_FragColor = vec4(vColor, alpha);
+        vec2 p = vUv - vec2(0.5);
+        float d = length(p);
+
+        if (vStyle < 0.5) {
+            // ───────── Star: soft glowing point with bright core ─────────
+            if (d > 0.5) discard;
+            float alpha = 1.0 - smoothstep(0.0, 0.5, d);
+            gl_FragColor = vec4(vColor, alpha);
+        } else if (vStyle < 1.5) {
+            // ───────── Brown / cool dwarf: small shaded disk ─────────
+            if (d > 0.46) discard;
+            float disk = 1.0 - smoothstep(0.40, 0.46, d);
+            float lit  = clamp(0.45 + 0.55 * (-p.x + p.y) * 2.0, 0.25, 1.15);
+            float rim  = 1.0 - smoothstep(0.30, 0.46, d) * 0.35;
+            // Dim overall so it doesn't out-shine real stars.
+            gl_FragColor = vec4(vColor * lit * rim * 0.55, disk * 0.55);
+        } else {
+            // ───────── Exoplanet host: stellar core + very faint orbit ring ─────────
+            if (d > 0.5) discard;
+            float core = 1.0 - smoothstep(0.0, 0.32, d);
+            float ring = (1.0 - smoothstep(0.40, 0.43, d))
+                       * smoothstep(0.36, 0.39, d) * 0.20;   // was 0.85 — much subtler
+            vec3 ringColor = mix(vColor, vec3(0.55, 0.75, 1.0), 0.6);
+            vec3 col = vColor * core + ringColor * ring;
+            float alpha = clamp(core + ring, 0.0, 1.0);
+            gl_FragColor = vec4(col, alpha);
+        }
     }
 `;
 
@@ -385,6 +410,25 @@ function createStarField(starsData, Voyage) {
     const colors = Voyage.getStarColors();
     const sizes = Voyage.getStarSizes();
 
+    // Per-instance render style + size override. Non-stars use a different
+    // shader branch (planet-like disk), and we boost their minimum size so
+    // they're actually visible at distance — synthesized brown dwarfs and
+    // exoplanet hosts have very faint apparent magnitudes.
+    const styles = new Float32Array(count);
+    const adjustedSizes = new Float32Array(sizes);
+    for (let i = 0; i < count; i++) {
+        const cat = starsData[i].category;
+        if (cat === 'dwarf') {
+            styles[i] = 1;
+            if (adjustedSizes[i] < 0.7) adjustedSizes[i] = 0.7;
+        } else if (cat === 'exoplanet_host') {
+            styles[i] = 2;
+            if (adjustedSizes[i] < 1.0) adjustedSizes[i] = 1.0;
+        } else {
+            styles[i] = 0;
+        }
+    }
+
     // Base geometry: a unit quad. PlaneGeometry vertices range [-0.5, 0.5].
     const baseGeometry = new THREE.PlaneGeometry(1, 1);
     const geometry = new THREE.InstancedBufferGeometry();
@@ -402,7 +446,11 @@ function createStarField(starsData, Voyage) {
     );
     geometry.setAttribute(
         'instanceSize',
-        new THREE.InstancedBufferAttribute(sizes, 1)
+        new THREE.InstancedBufferAttribute(adjustedSizes, 1)
+    );
+    geometry.setAttribute(
+        'instanceStyle',
+        new THREE.InstancedBufferAttribute(styles, 1)
     );
     geometry.instanceCount = count;
 

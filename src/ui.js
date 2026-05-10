@@ -306,12 +306,16 @@ export function onTimelinePinClick(ui, handler) {
 
 export function updateUI(ui, wp, Voyage) {
     const totalYears = ui._totalYears;
-    const remaining = totalYears - wp.year;
+    // Clamp the displayed year so floating-point overrun in the playback tick
+    // can never show "250.4 of 250 years"-style overflow.
+    const displayYear = Math.min(Math.max(0, wp.year), totalYears);
+    const remaining = Math.max(0, totalYears - wp.year);
     const arrivalText = remaining < 0.05
         ? 'Arrived'
         : `${remaining.toFixed(1)} yrs to arrival`;
+    // Use the same precision for current and total to keep them visually aligned.
     ui.yearDisplay.innerHTML =
-        `<span class="current">${wp.year.toFixed(1)}</span>of ${Math.round(totalYears)} years` +
+        `<span class="current">${displayYear.toFixed(1)}</span>of ${totalYears.toFixed(1)} years` +
         ` <span class="arrival-inline">· ${arrivalText}</span>`;
 
     const past = Voyage.isPastLightHorizon(wp.year);
