@@ -5,7 +5,12 @@
   "type": "module",
   "description": "Interactive 3D journey from Sol to Proxima Centauri",
   "scripts": {
-    "dev": "npx --yes serve -l 5173 .",
-    "start": "npx --yes serve -l 5173 ."
+    "build:config": "node scripts/build-firebase-config.mjs",
+    "dev": "npm run build:config && npx --yes serve -l 5173 .",
+    "start": "npm run build:config && npx --yes serve -l 5173 ."
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "firebase": "^12.13.0"
   }
 }

@@ -163,6 +163,16 @@ export function createUI(voyageData) {
             closeSetupModal(ui);
         });
     }
+    // Close behavior: X button in the panel, or click on the overlay backdrop.
+    const setupClose = document.getElementById('setup-close');
+    if (setupClose) {
+        setupClose.addEventListener('click', () => closeSetupModal(ui));
+    }
+    if (setupOverlay) {
+        setupOverlay.addEventListener('click', (e) => {
+            if (e.target === setupOverlay) closeSetupModal(ui);
+        });
+    }
     if (setupDestination && setupSpeed && setupEstimate) {
         const refresh = () => updateSetupEstimate(ui);
         setupDestination.addEventListener('change', refresh);

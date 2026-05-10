@@ -791,6 +791,18 @@
             margin-bottom: 8px;
         }
 
+        #setup-close {
+            background: transparent;
+            border: none;
+            color: #7a8aa8;
+            cursor: pointer;
+            font-size: 22px;
+            line-height: 1;
+            padding: 0 4px;
+        }
+
+        #setup-close:hover { color: #fff; }
+
         #setup-panel h2,
         #star-detail-panel h2 {
             font-size: 18px;
@@ -1335,6 +1347,7 @@
             <div id="setup-panel" class="panel">
                 <div class="panel-header">
                     <h2>Plan your voyage</h2>
+                    <button type="button" id="setup-close" class="form-close" aria-label="Close">×</button>
                 </div>
                 <div class="subtitle">
                     Choose where you're going and how fast. The trajectory, light horizon,

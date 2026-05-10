@@ -1,4 +1,5 @@
 import { createScene, updateScene, rebuildTrajectory } from './scene.js';
+import * as Firebase from './firebase.js';
 import {
     createUI,
     updateUI,
@@ -390,12 +391,49 @@ async function setup() {
 
     const { starsData, voyageData } = await Voyage.init();
 
-    // Hydrate user-added memories from localStorage before the UI renders pins.
-    const userPins = loadUserPins();
-    for (const p of userPins) {
-        if (!voyageData.pins.some((existing) => existing._id === p._id)) {
-            voyageData.pins.push(p);
+    // Canonical = the seed pins shipped in voyage.json (Captain Vasquez, etc.)
+    // — stable across destination changes. User-added pins (whether shared via
+    // Firestore or stored locally) are merged on top in `rebuildPinsFromSources`.
+    const canonicalPins = (voyageData.pins || []).map((p) => ({ ...p }));
+    let firestorePins = [];
+    let firestoreUnsubscribe = null;
+
+    function recomputeWaypointIndex(p) {
+        const totalYears = voyageData.metadata?.total_years ?? 250;
+        const totalWaypoints = voyageData.metadata?.total_waypoints ?? 1000;
+        if (typeof p.year === 'number' && totalYears > 0) {
+            const t = Math.max(0, Math.min(1, p.year / totalYears));
+            p.waypoint_index = Math.round(t * (totalWaypoints - 1));
         }
+        return p;
+    }
+
+    function rebuildPinsFromSources() {
+        const extra = Firebase.isAvailable()
+            ? firestorePins
+            : loadUserPins().map((p) => ({ ...p, _userAdded: true }));
+        voyageData.pins = [...canonicalPins, ...extra];
+        for (const p of voyageData.pins) recomputeWaypointIndex(p);
+        rebuildTimeline(ui, voyageData.pins, voyageData.metadata?.total_years ?? 250);
+    }
+
+    function subscribeToVoyagePins() {
+        if (firestoreUnsubscribe) {
+            firestoreUnsubscribe();
+            firestoreUnsubscribe = null;
+        }
+        if (!Firebase.isAvailable()) {
+            // Local-only path — rebuild once from current localStorage and stop.
+            rebuildPinsFromSources();
+            return;
+        }
+        const destId = voyageData.metadata?.destination?.id;
+        if (destId == null) return;
+        firestorePins = []; // start fresh for new voyage; snapshot will fill
+        firestoreUnsubscribe = Firebase.watchVoyagePins(destId, (pins) => {
+            firestorePins = pins;
+            rebuildPinsFromSources();
+        });
     }
 
     const scene = createScene(starsData, voyageData, Voyage);
@@ -514,7 +552,9 @@ async function setup() {
 
         rebuildTrajectory(scene, voyageData);
         applyVoyageMetadata(ui, voyageData.metadata);
-        rebuildTimeline(ui, voyageData.pins, voyageData.metadata.total_years);
+        // New voyage = different shared log book. Rewire the Firestore sub
+        // and let it rebuild voyageData.pins via rebuildPinsFromSources().
+        subscribeToVoyagePins();
         seenMilestones.clear();
         arrivalShown = false; // new voyage → arrival can fire again
 
@@ -719,9 +759,14 @@ async function setup() {
         }
     }
 
-    onMemorySubmit(ui, (entry) => {
+    // Pin subscription: applyVoyage above already wires this for saved voyages.
+    // For first-time visitors who haven't picked yet, we still need an initial
+    // call so localStorage pins (or the default-voyage Firestore pins, if
+    // metadata.destination is set) render.
+    subscribeToVoyagePins();
+
+    onMemorySubmit(ui, async (entry) => {
         const pin = {
-            _id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             _userAdded: true,
             waypoint_index: waypointIndexForYear(voyageData, entry.year),
             year: entry.year,
@@ -730,10 +775,30 @@ async function setup() {
             author: entry.author,
             text: entry.text,
         };
-        voyageData.pins.push(pin);
-        saveUserPins(voyageData.pins.filter((p) => p._userAdded));
-        addTimelinePin(ui, pin);
-        openPinPopup(ui, pin);
+
+        if (Firebase.isAvailable()) {
+            // Optimistic local insert so the marker appears instantly. The
+            // onSnapshot callback will replace it with the canonical doc
+            // (with a real `_id`) shortly after.
+            const optimisticId = `pending-${Date.now()}`;
+            firestorePins.push({ ...pin, _id: optimisticId });
+            rebuildPinsFromSources();
+            openPinPopup(ui, pin);
+            const destId = voyageData.metadata?.destination?.id;
+            await Firebase.addVoyagePin(pin, destId);
+            // Snapshot will arrive and rebuild — drop the optimistic stub.
+            firestorePins = firestorePins.filter((p) => p._id !== optimisticId);
+        } else {
+            // Local-only fallback (Firebase config missing).
+            const localPin = {
+                ...pin,
+                _id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            };
+            voyageData.pins.push(localPin);
+            saveUserPins(voyageData.pins.filter((p) => p._userAdded));
+            addTimelinePin(ui, localPin);
+            openPinPopup(ui, localPin);
+        }
     });
 
     if (Audio) {

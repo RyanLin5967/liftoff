@@ -5,3 +5,6 @@ Earth.obj
 Earth_Texture
 *.obj
 *_Texture/
+.env
+firebase-config.json
+node_modules/
